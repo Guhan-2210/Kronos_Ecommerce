@@ -1,0 +1,52 @@
+{
+  "name": "week2-ecommerce-monorepo",
+  "version": "1.0.0",
+  "description": "E-commerce microservices monorepo with Cloudflare Workers",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "auth-worker",
+    "cart-worker",
+    "catalog-worker",
+    "fulfilment-worker",
+    "order-worker",
+    "payment-worker",
+    "price-worker"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check \"**/*.{js,json,md,svelte}\"",
+    "format:fix": "prettier --write \"**/*.{js,json,md,svelte}\"",
+    "knip": "knip --config knip.json",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "check-all": "npm run lint && npm run format && npm run knip && npm run test",
+    "fix-all": "npm run lint:fix && npm run format:fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "eslint": "^9.15.0",
+    "eslint-plugin-svelte": "^2.46.1",
+    "globals": "^15.12.0",
+    "husky": "^9.1.7",
+    "knip": "^5.38.2",
+    "lint-staged": "^15.2.11",
+    "prettier": "^3.3.3",
+    "prettier-plugin-svelte": "^3.2.8"
+  },
+  "lint-staged": {
+    "*.{js,svelte}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [],
+      "project": []
+    },
+    "auth-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "cart-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "catalog-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "fulfilment-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "order-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "payment-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    },
+    "price-worker": {
+      "entry": ["src/index.js"],
+      "project": ["src/**/*.js", "test/**/*.js"]
+    }
+  },
+  "ignore": [
+    "**/*.config.js",
+    "**/*.test.js",
+    "**/wrangler.toml",
+    "**/coverage/**",
+    "**/node_modules/**",
+    "**/build/**",
+    "**/dist/**"
+  ],
+  "ignoreDependencies": ["wrangler", "mocha", "chai", "sinon", "c8", "@types/*"],
+  "ignoreExportsUsedInFile": true
+}

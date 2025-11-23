@@ -1,0 +1,80 @@
+{
+  "name": "Rolex Submariner Date",
+  "brand": "Rolex",
+  "model": "Submariner",
+  "reference_number": "126610LN",
+  "sku": "RLX-SUB-126610LN-BLK",
+  "collection": "Oyster Perpetual",
+  "gender": "men",
+  "release_year": 2020,
+  "discontinued": false,
+  "case": {
+    "material": "Oystersteel (904L Stainless Steel)",
+    "diameter_mm": 41,
+    "thickness_mm": 12.5,
+    "lug_to_lug_mm": 48,
+    "shape": "round",
+    "crystal": "sapphire",
+    "back": "solid",
+    "water_resistance_m": 300,
+    "bezel": {
+      "type": "unidirectional rotating",
+      "material": "Cerachrom (ceramic)",
+      "color": "black"
+    },
+    "crown": {
+      "type": "screw-down Triplock",
+      "position": "3 o'clock"
+    }
+  },
+  "movement": {
+    "type": "automatic",
+    "caliber": "Rolex 3235",
+    "power_reserve_hours": 70,
+    "frequency_vph": 28800,
+    "jewels": 31,
+    "complications": ["date"]
+  },
+  "dial": {
+    "color": "black",
+    "finish": "gloss",
+    "index_type": "luminescent hour markers",
+    "hands_type": "Mercedes hands with Chromalight",
+    "lume": "Chromalight blue glow",
+    "subdials": 0,
+    "date_window_position": "3 o'clock"
+  },
+  "strap": {
+    "material": "Oystersteel",
+    "color": "silver",
+    "width_mm": 20,
+    "clasp_type": "Oysterlock safety clasp with Glidelock",
+    "length_mm": 180,
+    "interchangeable": false
+  },
+  "colors": {
+    "case_color": "silver",
+    "dial_color": "black",
+    "strap_color": "silver",
+    "bezel_color": "black"
+  },
+  "dimensions": {
+    "weight_grams": 155,
+    "case_diameter_mm": 41,
+    "case_thickness_mm": 12.5
+  },
+  "features": {
+    "shock_resistant": true,
+    "anti_magnetic": true,
+    "chronometer_certified": "COSC",
+    "smartwatch": false,
+    "connected_features": []
+  },
+  "authenticity": {
+    "box_included": true,
+    "papers_included": true,
+    "warranty_card": true,
+    "original_purchase_receipt": false,
+    "service_history": []
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "require": ["test/setup.js"],
+  "spec": ["test/**/*.test.js"],
+  "timeout": 5000,
+  "color": true,
+  "reporter": "spec",
+  "recursive": true,
+  "exit": true,
+  "node-option": ["experimental-vm-modules"]
+}

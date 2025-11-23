@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Frontend projects (have their own prettier config with tailwind)
+frontend-worker/
+ecommerce/
+
+# Build outputs
+build/
+dist/
+**/build/
+**/dist/
+coverage/
+**/coverage/
+.svelte-kit/
+.wrangler/
+
+# Secrets and config
+wrangler.toml
+**/wrangler.toml
+.env
+.env.*
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Test artifacts
+**/lcov-report/
+**/.nyc_output/
+
+# Package locks (optional - uncomment if you don't want to format them)
+# package-lock.json
+# **/package-lock.json
+

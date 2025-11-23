@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+echo ""
+
+# Run lint-staged for auto-fixing ESLint and Prettier issues
+npx lint-staged
+
+# Run Knip in non-blocking mode (warnings only)
+echo ""
+echo "🔪 Running Knip (dead code detection) - non-blocking..."
+npx knip || echo "⚠️  Knip found some issues (non-blocking, commit will proceed)"
+
+echo ""
+echo "✅ Pre-commit checks completed!"

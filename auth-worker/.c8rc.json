@@ -1,0 +1,11 @@
+{
+  "all": true,
+  "include": ["src/**/*.js"],
+  "exclude": ["src/index.js", "src/routes/**", "src/migrations/**", "src/models/db.js"],
+  "reporter": ["text", "text-summary", "html", "lcov"],
+  "check-coverage": false,
+  "lines": 70,
+  "functions": 70,
+  "branches": 70,
+  "statements": 70
+}
