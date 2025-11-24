@@ -19,18 +19,18 @@ database_id = "c9035cde-c4f0-4b89-b1d3-961708b6a624"  # Using production DB for 
 
 [[env.preview.services]]
 binding = "PRICE_SERVICE"
-service = "price-worker"
-environment = "preview"
+service = "price-worker-preview"
+# No environment needed - binding directly to the preview worker
 
 [[env.preview.services]]
 binding = "FULFILMENT_SERVICE"
-service = "fulfilment-worker"
-environment = "preview"
+service = "fulfilment-worker-preview"
+# No environment needed - binding directly to the preview worker
 
 [[env.preview.services]]
 binding = "ORDER_SERVICE"
-service = "order-worker"
-environment = "preview"
+service = "order-worker-preview"
+# No environment needed - binding directly to the preview worker
 
 [env.preview.vars]
 ENVIRONMENT = "preview"

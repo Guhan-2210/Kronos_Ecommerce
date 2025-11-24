@@ -20,13 +20,13 @@ database_id = "732d9b96-66b1-437d-8ee0-1c54005fc338"  # Using production DB for 
 
 [[env.preview.services]]
 binding = "PAYMENT_SERVICE"
-service = "payment-worker"
-environment = "preview"
+service = "payment-worker-preview"
+# No environment needed - binding directly to the preview worker
 
 [[env.preview.services]]
 binding = "FULFILMENT_SERVICE"
-service = "fulfilment-worker"
-environment = "preview"
+service = "fulfilment-worker-preview"
+# No environment needed - binding directly to the preview worker
 
 [env.preview.vars]
 ENVIRONMENT = "preview"

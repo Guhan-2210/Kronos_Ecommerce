@@ -1,0 +1,11 @@
+# SPA fallback - redirect all non-file requests to index.html
+# This ensures client-side routing works on page refresh
+
+# Serve static files directly (these are in the build output)
+/_app/*  200
+/robots.txt  200
+/favicon.ico  200
+
+# All other routes should fall back to index.html for SPA routing
+/*  /index.html  200
+

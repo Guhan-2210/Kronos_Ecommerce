@@ -106,9 +106,16 @@ export const ProductModel = {
     const countResult = await fetchOne(db, countQuery, params);
     const total = countResult.total;
 
-    // Get paginated results
+    // Get paginated results - only fetch necessary fields for list view
     const query = `
-      SELECT * FROM products 
+      SELECT 
+        id,
+        json_extract(product_data, '$.name') as name,
+        json_extract(product_data, '$.brand') as brand,
+        json_extract(product_data, '$.media.image') as image_url,
+        created_at,
+        updated_at
+      FROM products 
       ${whereClause}
       ORDER BY ${safeSortBy} ${safeSortOrder}
       LIMIT ? OFFSET ?
@@ -118,8 +125,12 @@ export const ProductModel = {
 
     return {
       data: results.map(row => ({
-        ...row,
-        product_data: JSON.parse(row.product_data),
+        id: row.id,
+        name: row.name,
+        brand: row.brand,
+        image_url: row.image_url,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       })),
       pagination: {
         total,

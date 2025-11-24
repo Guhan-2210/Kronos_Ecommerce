@@ -19,6 +19,11 @@ new_sqlite_classes = ["InventoryReservationDO"]
 [env.preview]
 name = "fulfilment-worker-preview"
 
+[[env.preview.durable_objects.bindings]]
+name = "INVENTORY_RESERVATIONS"
+class_name = "InventoryReservationDO"
+script_name = "fulfilment-worker-preview"
+
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "fulfilment_db_preview"
@@ -42,6 +47,11 @@ HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etm
 # ============================================
 [env.production]
 name = "fulfilment-worker"
+
+[[env.production.durable_objects.bindings]]
+name = "INVENTORY_RESERVATIONS"
+class_name = "InventoryReservationDO"
+script_name = "fulfilment-worker"
 
 [[env.production.d1_databases]]
 binding = "DB"
