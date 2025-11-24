@@ -1,0 +1,57 @@
+name = "ecommerce-auth"
+main = "src/index.js"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# PREVIEW ENVIRONMENT (for PR testing)
+# ============================================
+[env.preview]
+name = "ecommerce-auth-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "auth-db-preview"
+database_id = "4aca0b00-b074-46ca-9b8d-0a041225fa27"  # Using production DB for preview (free tier)
+
+# R2 bucket removed - free tier limitation
+# Logs will output to console only in preview
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+LOG_LEVEL = "DEBUG"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_TTL_SEC = "900"
+REFRESH_TTL_DAYS = "30"
+DATA_ENC_KEY_B64 = "UZjNNr4C5fy4D8ctO+vvsg2/mu3xFRCggPbc95h1fCk="
+PII_INDEX_KEY_B64 = "eRohDyOA9oViPUrd7m8lqnJQkKyf4WzHL98MEOfuoIw="
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+
+# ============================================
+# PRODUCTION ENVIRONMENT (default)
+# ============================================
+[env.production]
+name = "ecommerce-auth"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "auth-db-prod"
+database_id = "4aca0b00-b074-46ca-9b8d-0a041225fa27"
+
+[[env.production.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "INFO"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_TTL_SEC = "900"
+REFRESH_TTL_DAYS = "30"
+DATA_ENC_KEY_B64 = "UZjNNr4C5fy4D8ctO+vvsg2/mu3xFRCggPbc95h1fCk="
+PII_INDEX_KEY_B64 = "eRohDyOA9oViPUrd7m8lqnJQkKyf4WzHL98MEOfuoIw="
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"

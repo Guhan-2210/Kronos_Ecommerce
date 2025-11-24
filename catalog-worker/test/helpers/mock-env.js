@@ -63,11 +63,32 @@ export function createMockDB() {
           return null;
         },
         async all() {
-          if (this._sql.includes('SELECT * FROM products')) {
+          // Handle both full SELECT * and field-specific SELECT queries
+          if (this._sql.includes('SELECT') && this._sql.includes('FROM products')) {
             const results = [];
             for (const [key, value] of store.entries()) {
               if (key.startsWith('product:')) {
-                results.push(value);
+                // Check if this is a field-specific query (with json_extract)
+                if (this._sql.includes('json_extract')) {
+                  // Parse the product_data JSON
+                  const productData =
+                    typeof value.product_data === 'string'
+                      ? JSON.parse(value.product_data)
+                      : value.product_data;
+
+                  // Return only the extracted fields
+                  results.push({
+                    id: value.id,
+                    name: productData.name || null,
+                    brand: productData.brand || null,
+                    image_url: productData.media?.image || null,
+                    created_at: value.created_at,
+                    updated_at: value.updated_at,
+                  });
+                } else {
+                  // Return full product data
+                  results.push(value);
+                }
               }
             }
 

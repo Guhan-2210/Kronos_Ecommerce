@@ -178,7 +178,7 @@ describe('Product Service', () => {
   });
 
   describe('getAllProducts', () => {
-    it('should get all products', async () => {
+    it('should get all products with only necessary fields', async () => {
       await ProductService.createProduct(mockEnv, validProductData);
       await ProductService.createProduct(mockEnv, { ...validProductData, sku: 'SKU-002' });
 
@@ -188,6 +188,20 @@ describe('Product Service', () => {
       expect(result.data.length).to.be.at.least(1);
       expect(result.pagination).to.have.property('total');
       expect(result.pagination.total).to.be.at.least(1);
+
+      // Verify only necessary fields are returned
+      const product = result.data[0];
+      expect(product).to.have.property('id');
+      expect(product).to.have.property('name');
+      expect(product).to.have.property('brand');
+      expect(product).to.have.property('image_url');
+      expect(product).to.have.property('created_at');
+      expect(product).to.have.property('updated_at');
+
+      // Verify full product_data is NOT returned
+      expect(product).to.not.have.property('product_data');
+      expect(product).to.not.have.property('sku');
+      expect(product).to.not.have.property('price');
     });
 
     it('should apply pagination', async () => {

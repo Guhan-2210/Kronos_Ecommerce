@@ -14,10 +14,11 @@
     "price-worker"
   ],
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node -e \"process.exit(process.env.CI === 'true' ? 0 : 1)\" || husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check \"**/*.{js,json,md,svelte}\"",
+    "format:check": "prettier --check \"**/*.{js,json,md,svelte}\"",
     "format:fix": "prettier --write \"**/*.{js,json,md,svelte}\"",
     "knip": "knip --config knip.json",
     "test": "npm run test --workspaces --if-present",
@@ -46,7 +47,7 @@
     ]
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "npm": ">=9.0.0"
   }
 }

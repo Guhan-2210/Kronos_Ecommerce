@@ -1,0 +1,36 @@
+name = "log-consolidator-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Scheduled to run every day at midnight UTC (end of day)
+[triggers]
+crons = ["0 0 * * *"]
+
+# ============================================
+# PREVIEW ENVIRONMENT (for PR testing)
+# ============================================
+[env.preview]
+name = "log-consolidator-worker-preview"
+
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+LOG_LEVEL = "DEBUG"
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+
+# ============================================
+# PRODUCTION ENVIRONMENT
+# ============================================
+[env.production]
+name = "log-consolidator-worker"
+
+[[env.production.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "INFO"
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+

@@ -1,0 +1,84 @@
+name = "cart-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# PREVIEW ENVIRONMENT (for PR testing)
+# ============================================
+[env.preview]
+name = "cart-worker-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "cart_db_preview"
+database_id = "c9035cde-c4f0-4b89-b1d3-961708b6a624"  # Using production DB for preview (free tier)
+
+# R2 bucket removed - free tier limitation
+# Logs will output to console only in preview
+
+[[env.preview.services]]
+binding = "PRICE_SERVICE"
+service = "price-worker-preview"
+# No environment needed - binding directly to the preview worker
+
+[[env.preview.services]]
+binding = "FULFILMENT_SERVICE"
+service = "fulfilment-worker-preview"
+# No environment needed - binding directly to the preview worker
+
+[[env.preview.services]]
+binding = "ORDER_SERVICE"
+service = "order-worker-preview"
+# No environment needed - binding directly to the preview worker
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+LOG_LEVEL = "DEBUG"
+AUTH_WORKER_URL = "https://ecommerce-auth-preview.guhan2210.workers.dev"
+CATALOG_WORKER_URL = "https://catalog-worker-preview.guhan2210.workers.dev"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+
+# ============================================
+# PRODUCTION ENVIRONMENT
+# ============================================
+[env.production]
+name = "cart-worker"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "cart_db"
+database_id = "c9035cde-c4f0-4b89-b1d3-961708b6a624"
+
+[[env.production.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs"
+
+[[env.production.services]]
+binding = "PRICE_SERVICE"
+service = "price-worker"
+environment = "production"
+
+[[env.production.services]]
+binding = "FULFILMENT_SERVICE"
+service = "fulfilment-worker"
+environment = "production"
+
+[[env.production.services]]
+binding = "ORDER_SERVICE"
+service = "order-worker"
+environment = "production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "INFO"
+AUTH_WORKER_URL = "https://ecommerce-auth.guhan2210.workers.dev"
+CATALOG_WORKER_URL = "https://catalog-worker.guhan2210.workers.dev"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+

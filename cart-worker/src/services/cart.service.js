@@ -242,7 +242,7 @@ export const CartService = {
    * This is the CRITICAL step where warehouse_id gets assigned based on shipping zipcode
    */
   async addShippingAddress(env, cartId, userId, address) {
-    const { street, city, state, zipcode, country } = address;
+    const { street: _street, city: _city, state: _state, zipcode, country: _country } = address;
 
     if (!zipcode) {
       throw new Error('Zipcode is required');
@@ -789,20 +789,26 @@ export const CartService = {
    * Calculate order costs
    */
   calculateCosts(products, deliveryMode) {
-    const subtotal = products.reduce((sum, p) => sum + p.price * p.quantity, 0);
-
-    // Get currency from products
-    const productCurrency = products[0]?.currency || 'INR';
-
-    // Convert INR to USD for PayPal (PayPal sandbox works better with USD)
-    // Exchange rate: 1 USD = ~83 INR (as of 2024)
     const INR_TO_USD = 83.0;
-    let convertedSubtotal = subtotal;
-    const finalCurrency = 'USD';
+    const EUR_TO_USD = 1.18;
+    const GBP_TO_USD = 1.27;
 
-    if (productCurrency === 'INR') {
-      convertedSubtotal = subtotal / INR_TO_USD;
-      console.log(`[Cart] Converting INR to USD: ₹${subtotal} → $${convertedSubtotal.toFixed(2)}`);
+    // Convert each product to USD and sum
+    let convertedSubtotal = 0;
+    for (const product of products) {
+      const productTotal = product.price * product.quantity;
+      const currency = product.currency || 'USD';
+
+      if (currency === 'INR') {
+        convertedSubtotal += productTotal / INR_TO_USD;
+      } else if (currency === 'EUR') {
+        convertedSubtotal += productTotal * EUR_TO_USD;
+      } else if (currency === 'GBP') {
+        convertedSubtotal += productTotal * GBP_TO_USD;
+      } else {
+        // USD or unknown currency (treat as USD)
+        convertedSubtotal += productTotal;
+      }
     }
 
     // Delivery costs (in USD)
@@ -820,10 +826,239 @@ export const CartService = {
       delivery_cost: deliveryCost,
       tax: Math.round(tax * 100) / 100,
       total: Math.round(total * 100) / 100,
-      currency: finalCurrency,
-      original_currency: productCurrency,
-      original_subtotal: subtotal, // For display to user
-      exchange_rate: productCurrency === 'INR' ? INR_TO_USD : null,
+      currency: 'USD',
     };
+  },
+
+  /**
+   * Convert currency
+   */
+  convertCurrency(amount, currency) {
+    const INR_TO_USD = 83.0;
+    const EUR_TO_USD = 1.18;
+    const GBP_TO_USD = 1.27;
+
+    let amountUsd = amount;
+    let exchangeRate = null;
+
+    if (currency === 'INR') {
+      amountUsd = amount / INR_TO_USD;
+      exchangeRate = INR_TO_USD;
+    } else if (currency === 'EUR') {
+      amountUsd = amount * EUR_TO_USD;
+      exchangeRate = 1 / EUR_TO_USD;
+    } else if (currency === 'GBP') {
+      amountUsd = amount * GBP_TO_USD;
+      exchangeRate = 1 / GBP_TO_USD;
+    }
+
+    return {
+      amount_usd: amountUsd,
+      original_amount: amount,
+      original_currency: currency,
+      exchange_rate: exchangeRate,
+    };
+  },
+
+  /**
+   * Clear all products from cart
+   */
+  async clearCart(env, cartId, userId) {
+    await this.verifyCartOwnership(env, cartId, userId);
+    return await CartModel.updateProducts(env.DB, cartId, []);
+  },
+
+  /**
+   * Get active cart for user
+   */
+  async getActiveCart(env, userId) {
+    return await CartModel.getActiveCartByUser(env.DB, userId);
+  },
+
+  /**
+   * Update shipping address
+   */
+  async updateShippingAddress(env, cartId, userId, address) {
+    const cart = await this.verifyCartOwnership(env, cartId, userId);
+
+    if (!cart.product_data || cart.product_data.length === 0) {
+      throw new Error('Cart is empty - cannot set shipping address');
+    }
+
+    // Simple address update - warehouse assignment happens via addShippingAddress if needed
+    const updatedCart = await CartModel.updateShippingAddress(env.DB, cartId, address);
+    return updatedCart;
+  },
+
+  /**
+   * Set delivery mode
+   */
+  async setDeliveryMode(env, cartId, userId, deliveryMode) {
+    if (!['standard', 'express'].includes(deliveryMode)) {
+      throw new Error('Invalid delivery mode - must be standard or express');
+    }
+
+    await this.verifyCartOwnership(env, cartId, userId);
+
+    const updatedCart = await CartModel.update(env.DB, cartId, {
+      delivery_mode: deliveryMode,
+      updated_at: Date.now(),
+    });
+
+    return updatedCart;
+  },
+
+  /**
+   * Validate cart is ready for checkout
+   */
+  validateCartForCheckout(cart) {
+    if (!cart.product_data || cart.product_data.length === 0) {
+      return false;
+    }
+    if (!cart.shipping_address) {
+      return false;
+    }
+    if (!cart.delivery_mode) {
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Format cart response
+   */
+  formatCartResponse(cart) {
+    const costs = this.calculateCosts(cart.product_data, cart.delivery_mode || 'standard');
+
+    return {
+      id: cart.id,
+      user_id: cart.user_id,
+      products: cart.product_data,
+      shipping_address: cart.shipping_address,
+      billing_address: cart.billing_address,
+      delivery_mode: cart.delivery_mode,
+      costs,
+      status: cart.status,
+      created_at: cart.created_at,
+      updated_at: cart.updated_at,
+    };
+  },
+
+  /**
+   * Assign warehouses and validate stock
+   */
+  async assignWarehousesAndValidateStock(env, products, zipcode) {
+    const updatedProducts = [];
+
+    for (const product of products) {
+      try {
+        const stockCheck = await this.checkStockAvailability(
+          env,
+          product.product_id,
+          zipcode,
+          product.quantity
+        );
+
+        updatedProducts.push({
+          ...product,
+          warehouse_id: stockCheck.available ? stockCheck.warehouse_id : null,
+          available: stockCheck.available,
+        });
+      } catch (error) {
+        console.error(`Failed to check stock for ${product.product_id}:`, error);
+        updatedProducts.push({
+          ...product,
+          warehouse_id: null,
+          available: false,
+        });
+      }
+    }
+
+    return updatedProducts;
+  },
+
+  /**
+   * Checkout cart and create order
+   */
+  async checkout(env, cartId, userId) {
+    const cart = await this.verifyCartOwnership(env, cartId, userId);
+
+    if (!this.validateCartForCheckout(cart)) {
+      throw new Error('Cart is not ready for checkout - missing shipping address or delivery mode');
+    }
+
+    // Create order via order service
+    try {
+      const orderData = {
+        cart_id: cartId,
+        user_id: userId,
+        products: cart.product_data,
+        shipping_address: cart.shipping_address,
+        billing_address: cart.billing_address,
+        delivery_mode: cart.delivery_mode,
+      };
+
+      const orderResponse = await callService(
+        env,
+        env.ORDER_SERVICE || 'http://localhost:8791',
+        'POST',
+        '/orders',
+        orderData
+      );
+
+      // Update cart status
+      await this.updateStatus(env, cartId, userId, 'checked_out');
+
+      return orderResponse.data;
+    } catch (error) {
+      throw new Error(`Order creation failed: ${error.message}`);
+    }
+  },
+
+  /**
+   * Refresh prices in cart
+   */
+  async refreshPricesInCart(env, products) {
+    const updatedProducts = [];
+
+    for (const product of products) {
+      try {
+        const priceData = await this.getCurrentPrice(env, product.product_id);
+        updatedProducts.push({
+          ...product,
+          price: priceData ? priceData.price : product.price,
+          currency: priceData ? priceData.currency : product.currency,
+        });
+      } catch {
+        // Keep old price if fetch fails
+        updatedProducts.push(product);
+      }
+    }
+
+    return updatedProducts;
+  },
+
+  /**
+   * Validate stock for products
+   */
+  async validateStockForProducts(env, products) {
+    const validatedProducts = [];
+
+    for (const product of products) {
+      try {
+        const stockCheck = await this.checkGeneralStock(env, product.product_id, product.quantity);
+        validatedProducts.push({
+          ...product,
+          stock_available: stockCheck.available,
+        });
+      } catch {
+        validatedProducts.push({
+          ...product,
+          stock_available: false,
+        });
+      }
+    }
+
+    return validatedProducts;
   },
 };

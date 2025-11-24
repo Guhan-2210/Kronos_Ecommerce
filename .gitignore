@@ -4,9 +4,16 @@
 # ============================================
 # Secrets & Configuration (IMPORTANT!)
 # ============================================
-# Wrangler config files contain API keys, account IDs, and secrets
-wrangler.toml
-**/wrangler.toml
+# ⚠️ wrangler.toml IS NOW TRACKED for CI/CD functionality
+# ⚠️ This is acceptable for:
+#    - Private repositories
+#    - Learning/portfolio projects
+#    - When using Cloudflare's free tier
+# ⚠️ For production: Migrate to Cloudflare Secrets Manager
+# wrangler.toml  # COMMENTED OUT - now tracked for CI/CD
+# **/wrangler.toml  # COMMENTED OUT - now tracked for CI/CD
+
+# Local dev environment files (still ignored)
 .dev.vars
 .env
 .env.*
@@ -276,8 +283,8 @@ debug-*.js
 *-key.*
 *.key.*
 
-# Backup of wrangler configs
+# Backup of wrangler configs (still ignored)
 wrangler.toml.backup
 wrangler.toml.bak
-wrangler.*.toml
+wrangler.local.toml
 

@@ -26,11 +26,12 @@
     "jose": "^5.2.0"
   },
   "devDependencies": {
-    "wrangler": "^3.80.0",
-    "mocha": "^10.2.0",
+    "c8": "^8.0.1",
     "chai": "^4.3.10",
+    "mocha": "^10.2.0",
     "sinon": "^17.0.1",
-    "c8": "^8.0.1"
+    "sinon-chai": "^4.0.1",
+    "wrangler": "^3.80.0"
   },
   "type": "module"
 }

@@ -106,7 +106,7 @@
       console.log('Backend response:', {
         dataCount: fetchedProducts.length,
         pagination: response.pagination,
-        fullResponse: response
+        sampleProduct: fetchedProducts[0]
       });
 
       // Update pagination from server response
@@ -129,42 +129,45 @@
         console.warn('No pagination metadata from backend, using fallback');
       }
 
-      // Apply client-side filter for movement type (not supported by backend)
+      // Note: Movement type filter is not supported with the new optimized API
+      // It would require fetching full product details which defeats the optimization
       if (selectedMovementType) {
-        fetchedProducts = fetchedProducts.filter(p => 
-          p.product_data?.movement?.type?.toLowerCase() === selectedMovementType.toLowerCase()
-        );
-        console.log(`Filtered by movement type "${selectedMovementType}": ${fetchedProducts.length} products`);
+        console.warn('Movement type filter requires full product data. Consider removing this filter or fetching detailed data.');
       }
 
       // Fetch prices for all products
+      const pricesMap = {};
       if (fetchedProducts.length > 0) {
         const productIds = fetchedProducts.map(p => p.id);
         try {
           const pricesResponse = await priceAPI.getPrices(productIds);
-          const pricesMap = {};
           
           if (pricesResponse.data) {
             pricesResponse.data.forEach(p => {
               pricesMap[p.product_id] = p.price;
             });
           }
-
-          // Attach prices to products and extract necessary fields
-          fetchedProducts = fetchedProducts.map(p => ({
-            ...p,
-            name: p.product_data?.name || p.name,
-            brand: p.product_data?.brand || '',
-            sku: p.product_data?.sku || p.sku || '',
-            image_url: p.product_data?.media?.image || p.product_data?.image_url,
-            price: pricesMap[p.id] || null
-          }));
         } catch (err) {
           console.error('Failed to fetch prices:', err);
         }
       }
 
-      products = fetchedProducts;
+      // Map products with prices
+      // New API structure returns: id, name, brand, image_url directly (no product_data wrapper)
+      products = fetchedProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        brand: p.brand,
+        image_url: p.image_url,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        price: pricesMap[p.id] || null
+      }));
+
+      console.log('Final mapped products:', {
+        count: products.length,
+        sampleProduct: products[0]
+      });
     } catch (err) {
       error = err.message;
       console.error('Load products error:', err);
