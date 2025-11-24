@@ -24,6 +24,12 @@ on:
         required: false
         type: string
 
+# Grant permissions for GitHub token
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 env:
   NODE_VERSION: 20
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
