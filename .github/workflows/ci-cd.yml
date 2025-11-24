@@ -149,14 +149,23 @@ jobs:
         working-directory: ${{ matrix.worker }}
         run: npm ci
 
+      - name: Add node_modules/.bin to PATH
+        run: echo "${{ github.workspace }}/node_modules/.bin" >> $GITHUB_PATH
+
+      - name: Verify tools are available
+        run: |
+          which eslint || echo "eslint not found"
+          which prettier || echo "prettier not found"
+          which knip || echo "knip not found"
+
       - name: Run ESLint
-        run: npx --no-install eslint ${{ matrix.worker }}/src/**/*.js
+        run: eslint ${{ matrix.worker }}/src/**/*.js
 
       - name: Run Prettier check
-        run: npx --no-install prettier --check "${{ matrix.worker }}/src/**/*.js"
+        run: prettier --check "${{ matrix.worker }}/src/**/*.js"
 
       - name: Run Knip (non-blocking)
-        run: npx --no-install knip || echo "⚠️ Knip warnings (non-blocking)"
+        run: knip || echo "⚠️ Knip warnings (non-blocking)"
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.worker }}
