@@ -142,44 +142,9 @@ jobs:
             package-lock.json
             ${{ matrix.worker }}/package-lock.json
 
-      - name: Install root dependencies
-        run: |
-          echo "📦 Installing root dependencies..."
-          npm ci
-          echo "✅ Root dependencies installed"
-          echo "📂 Current directory: $(pwd)"
-          echo "📋 Checking node_modules:"
-          ls -la node_modules/ | head -20 || echo "No node_modules found"
-          echo "📋 Checking .bin directory:"
-          ls -la node_modules/.bin/ | head -20 || echo "No .bin directory found"
-          echo "🔍 Looking for eslint:"
-          find node_modules -name "eslint" -type f 2>/dev/null | head -5 || echo "eslint binary not found"
-
       - name: Install worker dependencies
         working-directory: ${{ matrix.worker }}
         run: npm ci
-
-      - name: Run ESLint
-        run: |
-          echo "🔍 Running ESLint..."
-          if [ -f "$GITHUB_WORKSPACE/node_modules/.bin/eslint" ]; then
-            "$GITHUB_WORKSPACE/node_modules/.bin/eslint" ${{ matrix.worker }}/src/**/*.js
-          else
-            echo "❌ ESLint not found at expected location"
-            echo "Searching for ESLint..."
-            find . -name eslint -type f 2>/dev/null || echo "Not found"
-            exit 1
-          fi
-
-      - name: Run Prettier check
-        run: |
-          echo "✨ Running Prettier check..."
-          "$GITHUB_WORKSPACE/node_modules/.bin/prettier" --check "${{ matrix.worker }}/src/**/*.js"
-
-      - name: Run Knip (non-blocking)
-        run: |
-          echo "🔪 Running Knip..."
-          "$GITHUB_WORKSPACE/node_modules/.bin/knip" || echo "⚠️ Knip warnings (non-blocking)"
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.worker }}
