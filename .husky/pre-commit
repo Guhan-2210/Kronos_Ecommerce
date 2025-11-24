@@ -1,8 +1,17 @@
 echo "🔍 Running pre-commit checks..."
 echo ""
 
-# Run lint-staged for auto-fixing ESLint and Prettier issues
+# Run lint-staged (includes: ESLint, Prettier, Tests with Coverage)
+echo "📝 Running ESLint, Prettier, Tests & Coverage for changed workers..."
 npx lint-staged
+
+# Check if lint-staged failed (tests or linting)
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ Pre-commit checks failed!"
+  echo "   Fix the issues above and try again."
+  exit 1
+fi
 
 # Run Knip in non-blocking mode (warnings only)
 echo ""
@@ -11,3 +20,7 @@ npx knip || echo "⚠️  Knip found some issues (non-blocking, commit will proc
 
 echo ""
 echo "✅ Pre-commit checks completed!"
+echo "   ✓ Linting passed"
+echo "   ✓ Formatting passed"
+echo "   ✓ Tests passed (for changed workers)"
+echo "   ✓ Coverage checked (for changed workers)"

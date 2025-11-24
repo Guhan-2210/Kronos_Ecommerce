@@ -5,11 +5,16 @@ export default {
   // JSON and Markdown files - only Prettier
   '*.{json,md}': ['prettier --write'],
 
-  // Run tests for changed worker directories
+  // Run tests with coverage for changed worker directories
+  // Only runs if src/ files are changed (skips test-only changes)
+  // Enforces 50% minimum coverage threshold
   'auth-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd auth-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd auth-worker && npm run test:coverage -- --reporter min',
+        'cd auth-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -17,7 +22,10 @@ export default {
   'cart-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd cart-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd cart-worker && npm run test:coverage -- --reporter min',
+        'cd cart-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -25,7 +33,10 @@ export default {
   'catalog-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd catalog-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd catalog-worker && npm run test:coverage -- --reporter min',
+        'cd catalog-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -33,7 +44,10 @@ export default {
   'fulfilment-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd fulfilment-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd fulfilment-worker && npm run test:coverage -- --reporter min',
+        'cd fulfilment-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -41,7 +55,10 @@ export default {
   'order-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd order-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd order-worker && npm run test:coverage -- --reporter min',
+        'cd order-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -49,7 +66,10 @@ export default {
   'payment-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd payment-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd payment-worker && npm run test:coverage -- --reporter min',
+        'cd payment-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
@@ -57,7 +77,10 @@ export default {
   'price-worker/**/*.js': async files => {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
-      return 'cd price-worker && npm run test:coverage -- --reporter min';
+      return [
+        'cd price-worker && npm run test:coverage -- --reporter min',
+        'cd price-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
+      ];
     }
     return [];
   },
