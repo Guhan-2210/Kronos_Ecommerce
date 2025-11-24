@@ -150,13 +150,13 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        run: npx eslint ${{ matrix.worker }}/src/**/*.js
+        run: npm exec eslint -- ${{ matrix.worker }}/src/**/*.js
 
       - name: Run Prettier check
-        run: npx prettier --check "${{ matrix.worker }}/src/**/*.js"
+        run: npm exec prettier -- --check "${{ matrix.worker }}/src/**/*.js"
 
       - name: Run Knip (non-blocking)
-        run: npx knip || echo "⚠️ Knip warnings (non-blocking)"
+        run: npm exec knip || echo "⚠️ Knip warnings (non-blocking)"
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.worker }}
