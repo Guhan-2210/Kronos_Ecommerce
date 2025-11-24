@@ -14,7 +14,7 @@
     "price-worker"
   ],
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node -e \"process.exit(process.env.CI === 'true' ? 0 : 1)\" || husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check \"**/*.{js,json,md,svelte}\"",
@@ -47,7 +47,7 @@
     ]
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "npm": ">=9.0.0"
   }
 }
