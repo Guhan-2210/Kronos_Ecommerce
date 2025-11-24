@@ -103,7 +103,16 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "⚠️  No worker source changes detected"
           else
-            WORKERS_JSON=$(printf '%s\n' "${CHANGED_WORKERS[@]}" | jq -R . | jq -s .)
+            # Build JSON array manually for reliability
+            WORKERS_JSON="["
+            for i in "${!CHANGED_WORKERS[@]}"; do
+              if [ $i -gt 0 ]; then
+                WORKERS_JSON+=","
+              fi
+              WORKERS_JSON+="\"${CHANGED_WORKERS[$i]}\""
+            done
+            WORKERS_JSON+="]"
+            
             echo "workers=$WORKERS_JSON" >> $GITHUB_OUTPUT
             echo "matrix={\"worker\":$WORKERS_JSON}" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
