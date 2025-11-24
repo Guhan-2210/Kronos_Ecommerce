@@ -145,24 +145,18 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Verify installations
-        run: |
-          ls -la node_modules/.bin/ || echo "No node_modules/.bin"
-          which eslint || echo "eslint not in PATH"
-          npm list eslint || echo "eslint not installed"
-
       - name: Install worker dependencies
         working-directory: ${{ matrix.worker }}
         run: npm ci
 
       - name: Run ESLint
-        run: npm run lint -- ${{ matrix.worker }}/src/**/*.js
+        run: npx --no-install eslint ${{ matrix.worker }}/src/**/*.js
 
       - name: Run Prettier check
-        run: npm run format:check -- "${{ matrix.worker }}/src/**/*.js"
+        run: npx --no-install prettier --check "${{ matrix.worker }}/src/**/*.js"
 
       - name: Run Knip (non-blocking)
-        run: npm run knip || echo "⚠️ Knip warnings (non-blocking)"
+        run: npx --no-install knip || echo "⚠️ Knip warnings (non-blocking)"
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.worker }}
