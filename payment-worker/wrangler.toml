@@ -1,0 +1,57 @@
+name = "payment-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# PREVIEW ENVIRONMENT (for PR testing)
+# ============================================
+[env.preview]
+name = "payment-worker-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "payment_db_preview"
+database_id = "db482507-8290-4962-bd85-21a67ad29c6c"  # TODO: Create separate preview DB
+
+[[env.preview.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+LOG_LEVEL = "DEBUG"
+PAYPAL_MODE = "sandbox"
+PAYPAL_CLIENT_ID = "Ae6nlZ4z70K9tWXwIYFBUHY0gJemVD0KtMfWRQOfPyAyMDJ7nsv10FIMOqy8DECgmraIbxMugjq26Fxl"
+PAYPAL_CLIENT_SECRET = "EDBzZ9EYlyDfKWd9ROUkytXBdSKzRN7PNDbVLee4LK8sumIpYdwhIpiXwnDpWwdhFcS-Wm5uck89NyHm"
+PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
+FRONTEND_URL = "https://preview.kronos-311.pages.dev"
+ENCRYPTION_KEY_B64 = "zva7VdOdrJdIfN3CzbxEryq/zFBXHVSHPsSwIkk4+6Q="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+
+# ============================================
+# PRODUCTION ENVIRONMENT
+# ============================================
+[env.production]
+name = "payment-worker"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "payment_db"
+database_id = "db482507-8290-4962-bd85-21a67ad29c6c"
+
+[[env.production.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "INFO"
+PAYPAL_MODE = "sandbox"
+PAYPAL_CLIENT_ID = "Ae6nlZ4z70K9tWXwIYFBUHY0gJemVD0KtMfWRQOfPyAyMDJ7nsv10FIMOqy8DECgmraIbxMugjq26Fxl"
+PAYPAL_CLIENT_SECRET = "EDBzZ9EYlyDfKWd9ROUkytXBdSKzRN7PNDbVLee4LK8sumIpYdwhIpiXwnDpWwdhFcS-Wm5uck89NyHm"
+PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
+FRONTEND_URL = "https://main.kronos-311.pages.dev"
+ENCRYPTION_KEY_B64 = "zva7VdOdrJdIfN3CzbxEryq/zFBXHVSHPsSwIkk4+6Q="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+

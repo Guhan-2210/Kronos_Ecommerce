@@ -1,0 +1,71 @@
+name = "order-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================
+# PREVIEW ENVIRONMENT (for PR testing)
+# ============================================
+[env.preview]
+name = "order-worker-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "order_db_preview"
+database_id = "732d9b96-66b1-437d-8ee0-1c54005fc338"  # TODO: Create separate preview DB
+
+[[env.preview.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs-preview"
+
+[[env.preview.services]]
+binding = "PAYMENT_SERVICE"
+service = "payment-worker"
+environment = "preview"
+
+[[env.preview.services]]
+binding = "FULFILMENT_SERVICE"
+service = "fulfilment-worker"
+environment = "preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+LOG_LEVEL = "DEBUG"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+
+# ============================================
+# PRODUCTION ENVIRONMENT
+# ============================================
+[env.production]
+name = "order-worker"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "order_db"
+database_id = "732d9b96-66b1-437d-8ee0-1c54005fc338"
+
+[[env.production.r2_buckets]]
+binding = "LOGS_BUCKET"
+bucket_name = "ecommerce-logs"
+
+[[env.production.services]]
+binding = "PAYMENT_SERVICE"
+service = "payment-worker"
+environment = "production"
+
+[[env.production.services]]
+binding = "FULFILMENT_SERVICE"
+service = "fulfilment-worker"
+environment = "production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "INFO"
+JWT_ISSUER = "Nike"
+JWT_AUDIENCE = "ecommerce-api"
+ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
+

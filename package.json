@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --check \"**/*.{js,json,md,svelte}\"",
+    "format:check": "prettier --check \"**/*.{js,json,md,svelte}\"",
     "format:fix": "prettier --write \"**/*.{js,json,md,svelte}\"",
     "knip": "knip --config knip.json",
     "test": "npm run test --workspaces --if-present",

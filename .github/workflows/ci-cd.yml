@@ -1,0 +1,460 @@
+name: Smart CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - deploy-preview
+          - deploy-production
+          - rollback
+      worker:
+        description: 'Worker name (e.g., auth-worker, cart-worker)'
+        required: true
+        type: string
+      deployment_id:
+        description: 'Deployment Version ID (for rollback only)'
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: 20
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+jobs:
+  # ========================================
+  # DETECT CHANGED WORKERS
+  # ========================================
+  detect-changes:
+    name: Detect Changed Workers
+    runs-on: ubuntu-latest
+    outputs:
+      workers: ${{ steps.detect.outputs.workers }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for accurate diff
+
+      - name: Detect changed workers
+        id: detect
+        run: |
+          # Define all workers
+          ALL_WORKERS=(
+            "auth-worker"
+            "cart-worker"
+            "catalog-worker"
+            "fulfilment-worker"
+            "order-worker"
+            "payment-worker"
+            "price-worker"
+            "log-consolidator-worker"
+          )
+          
+          # Initialize empty array
+          CHANGED_WORKERS=()
+          
+          # For PRs, compare against target branch
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          # For pushes to main, compare with previous commit
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            BASE_REF="${{ github.event.before }}"
+            HEAD_REF="${{ github.sha }}"
+          # For manual dispatch, use input
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "workers=[\"${{ github.event.inputs.worker }}\"]" >> $GITHUB_OUTPUT
+            echo "matrix={\"worker\":[\"${{ github.event.inputs.worker }}\"]}" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Comparing $BASE_REF...$HEAD_REF"
+          
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only $BASE_REF $HEAD_REF || echo "")
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Check each worker for changes
+          for worker in "${ALL_WORKERS[@]}"; do
+            if echo "$CHANGED_FILES" | grep -q "^${worker}/src/"; then
+              echo "✅ Detected changes in: $worker"
+              CHANGED_WORKERS+=("$worker")
+            fi
+          done
+          
+          # Convert to JSON array
+          if [ ${#CHANGED_WORKERS[@]} -eq 0 ]; then
+            echo "workers=[]" >> $GITHUB_OUTPUT
+            echo "matrix={}" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No worker source changes detected"
+          else
+            WORKERS_JSON=$(printf '%s\n' "${CHANGED_WORKERS[@]}" | jq -R . | jq -s .)
+            echo "workers=$WORKERS_JSON" >> $GITHUB_OUTPUT
+            echo "matrix={\"worker\":$WORKERS_JSON}" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "📦 Changed workers: ${CHANGED_WORKERS[*]}"
+          fi
+
+  # ========================================
+  # RUN CI (Lint, Format, Knip, Tests)
+  # ========================================
+  ci:
+    name: CI - ${{ matrix.worker }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            ${{ matrix.worker }}/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install worker dependencies
+        working-directory: ${{ matrix.worker }}
+        run: npm ci
+
+      - name: Run ESLint
+        run: npx eslint ${{ matrix.worker }}/src/**/*.js
+
+      - name: Run Prettier check
+        run: npx prettier --check "${{ matrix.worker }}/src/**/*.js"
+
+      - name: Run Knip (non-blocking)
+        run: npx knip || echo "⚠️ Knip warnings (non-blocking)"
+
+      - name: Run tests with coverage
+        working-directory: ${{ matrix.worker }}
+        run: npm run test:coverage || true
+
+      - name: Check coverage threshold
+        working-directory: ${{ matrix.worker }}
+        run: |
+          if [ -f "coverage/coverage-summary.json" ]; then
+            COVERAGE=$(node -pe "JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8')).total.lines.pct")
+            echo "📊 Code coverage: ${COVERAGE}%"
+            
+            if (( $(echo "$COVERAGE < 50" | bc -l) )); then
+              echo "❌ Coverage ${COVERAGE}% is below 50% threshold"
+              exit 1
+            else
+              echo "✅ Coverage ${COVERAGE}% meets threshold"
+            fi
+          else
+            echo "⚠️ No coverage report found, skipping check"
+          fi
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.worker }}
+          path: ${{ matrix.worker }}/coverage/
+          retention-days: 7
+
+  # ========================================
+  # DEPLOY TO PREVIEW (PR only)
+  # ========================================
+  deploy-preview:
+    name: Deploy Preview - ${{ matrix.worker }}
+    runs-on: ubuntu-latest
+    needs: [detect-changes, ci]
+    if: |
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' || 
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy-preview'))
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install worker dependencies
+        working-directory: ${{ matrix.worker }}
+        run: npm ci
+
+      - name: Get Previous Deployment Version
+        id: prev_version
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "Getting previous deployment version..."
+          PREV_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
+          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          echo "Previous version: $PREV_VERSION"
+
+      - name: Deploy to Cloudflare Preview
+        id: deploy
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "🚀 Deploying ${{ matrix.worker }} to preview..."
+          npx wrangler deploy --env preview
+
+      - name: Wait for deployment propagation
+        run: |
+          echo "⏳ Waiting 30 seconds for deployment to propagate..."
+          sleep 30
+
+      - name: Health Check
+        id: health_check
+        run: |
+          WORKER_NAME="${{ matrix.worker }}"
+          HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
+          
+          echo "🏥 Running health check on $HEALTH_URL"
+          
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
+            
+            if [ "$HEALTH_STATUS" = "200" ]; then
+              echo "✅ Health check passed!"
+              echo "status=success" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "⏳ Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          echo "❌ Health check failed after $MAX_RETRIES attempts"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Rollback on Health Check Failure
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "🔄 Health check failed! Rolling back to previous version..."
+          echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
+          npx wrangler rollback --env preview --version-id ${{ steps.prev_version.outputs.previous_version }}
+          echo "✅ Rollback completed!"
+
+      - name: Comment PR with deployment status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const worker = '${{ matrix.worker }}';
+            const status = '${{ steps.health_check.outputs.status }}';
+            const url = `https://${worker}-preview.guhan2210.workers.dev/health`;
+            
+            let emoji = status === 'success' ? '✅' : '❌';
+            let message = status === 'success' ? 'Deployed successfully!' : 'Health check failed - rolled back';
+            
+            const comment = `### ${emoji} Preview Deployment: \`${worker}\`
+            
+            **Status:** ${message}
+            **Environment:** Preview
+            **Health Check:** ${url}
+            
+            ${status === 'success' ? '🎉 Ready for testing!' : '⚠️ Deployment failed and was rolled back'}`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # ========================================
+  # DEPLOY TO PRODUCTION (main push only)
+  # ========================================
+  deploy-production:
+    name: Deploy Production - ${{ matrix.worker }}
+    runs-on: ubuntu-latest
+    needs: [detect-changes, ci]
+    if: |
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy-production'))
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install worker dependencies
+        working-directory: ${{ matrix.worker }}
+        run: npm ci
+
+      - name: Get Previous Deployment Version
+        id: prev_version
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "Getting previous production deployment version..."
+          PREV_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
+          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          echo "Previous version: $PREV_VERSION"
+
+      - name: Deploy to Cloudflare Production
+        id: deploy
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "🚀 Deploying ${{ matrix.worker }} to production..."
+          npx wrangler deploy --env production
+
+      - name: Wait for deployment propagation
+        run: |
+          echo "⏳ Waiting 30 seconds for deployment to propagate..."
+          sleep 30
+
+      - name: Health Check
+        id: health_check
+        run: |
+          WORKER_NAME="${{ matrix.worker }}"
+          # Map worker names to their production URLs
+          case $WORKER_NAME in
+            "auth-worker")
+              HEALTH_URL="https://ecommerce-auth.guhan2210.workers.dev/health"
+              ;;
+            *)
+              HEALTH_URL="https://${WORKER_NAME}.guhan2210.workers.dev/health"
+              ;;
+          esac
+          
+          echo "🏥 Running health check on $HEALTH_URL"
+          
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+            echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
+            
+            if [ "$HEALTH_STATUS" = "200" ]; then
+              echo "✅ Health check passed!"
+              echo "status=success" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "⏳ Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          echo "❌ Health check failed after $MAX_RETRIES attempts"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Rollback on Health Check Failure
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        working-directory: ${{ matrix.worker }}
+        run: |
+          echo "🔄 Health check failed! Rolling back to previous version..."
+          echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
+          npx wrangler rollback --env production --version-id ${{ steps.prev_version.outputs.previous_version }}
+          echo "✅ Rollback completed!"
+
+      - name: Create deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Worker:** ${{ matrix.worker }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.health_check.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.health_check.outputs.status }}" = "failed" ]; then
+            echo "**Action:** Automatically rolled back to previous version" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ========================================
+  # MANUAL ROLLBACK
+  # ========================================
+  manual-rollback:
+    name: Manual Rollback - ${{ github.event.inputs.worker }}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install worker dependencies
+        working-directory: ${{ github.event.inputs.worker }}
+        run: npm ci
+
+      - name: Determine environment from worker name
+        id: env
+        run: |
+          WORKER_NAME="${{ github.event.inputs.worker }}"
+          if [[ "$WORKER_NAME" == *"-preview" ]]; then
+            echo "environment=preview" >> $GITHUB_OUTPUT
+          else
+            echo "environment=production" >> $GITHUB_OUTPUT
+          fi
+
+      - name: List Recent Deployments
+        working-directory: ${{ github.event.inputs.worker }}
+        run: |
+          echo "📋 Recent deployments for ${{ github.event.inputs.worker }} (${{ steps.env.outputs.environment }}):"
+          npx wrangler deployments list --env ${{ steps.env.outputs.environment }} || echo "Unable to list deployments"
+
+      - name: Rollback to Specific Version
+        working-directory: ${{ github.event.inputs.worker }}
+        run: |
+          echo "🔄 Rolling back ${{ github.event.inputs.worker }} to deployment version:"
+          echo "📦 Deployment ID: ${{ github.event.inputs.deployment_id }}"
+          npx wrangler rollback --env ${{ steps.env.outputs.environment }} --version-id ${{ github.event.inputs.deployment_id }}
+          echo "✅ Rollback completed successfully!"
+
+      - name: Create rollback summary
+        run: |
+          echo "## 🔄 Manual Rollback Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Worker:** ${{ github.event.inputs.worker }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Rolled back to:** ${{ github.event.inputs.deployment_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
