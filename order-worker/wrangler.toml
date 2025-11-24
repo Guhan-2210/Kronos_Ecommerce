@@ -12,11 +12,11 @@ name = "order-worker-preview"
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "order_db_preview"
-database_id = "732d9b96-66b1-437d-8ee0-1c54005fc338"  # TODO: Create separate preview DB
+database_id = "732d9b96-66b1-437d-8ee0-1c54005fc338"  # Using production DB for preview (free tier)
 
-[[env.preview.r2_buckets]]
-binding = "LOGS_BUCKET"
-bucket_name = "ecommerce-logs-preview"
+# R2 bucket removed - free tier limitation
+# Logs will output to console only in preview
+
 
 [[env.preview.services]]
 binding = "PAYMENT_SERVICE"

@@ -13,9 +13,6 @@ crons = ["0 0 * * *"]
 [env.preview]
 name = "log-consolidator-worker-preview"
 
-[[env.preview.r2_buckets]]
-binding = "LOGS_BUCKET"
-bucket_name = "ecommerce-logs-preview"
 
 [env.preview.vars]
 ENVIRONMENT = "preview"

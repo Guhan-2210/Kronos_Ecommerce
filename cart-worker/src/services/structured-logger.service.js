@@ -19,19 +19,33 @@ export class StructuredLogger {
     FATAL: 4,
   };
 
-  constructor(serviceName, env, ctx) {
+  constructor(serviceName, environmentOrEnv, ctxOrLogLevel) {
     this.serviceName = serviceName;
-    this.env = env;
-    this.ctx = ctx;
+
+    // Support both old (serviceName, env, ctx) and new (serviceName, environment, logLevel) signatures
+    if (typeof environmentOrEnv === 'string') {
+      // New signature: (serviceName, environment, logLevel)
+      this.environment = environmentOrEnv;
+      this.logLevel = ctxOrLogLevel || 'INFO';
+      this.env = null;
+      this.ctx = null;
+    } else {
+      // Old signature: (serviceName, env, ctx)
+      this.env = environmentOrEnv;
+      this.ctx = ctxOrLogLevel;
+      this.environment = this.env?.ENVIRONMENT || 'production';
+      this.logLevel = this.env?.LOG_LEVEL || 'INFO';
+    }
+
     this.logs = [];
-    this.requestId = this.generateRequestId();
-    this.minLogLevel = env.LOG_LEVEL || 'INFO';
+    this.requestId = StructuredLogger.generateRequestId();
+    this.minLogLevel = this.logLevel;
   }
 
   /**
    * Generate a unique request ID for correlation
    */
-  generateRequestId() {
+  static generateRequestId() {
     return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
@@ -47,10 +61,8 @@ export class StructuredLogger {
       service: this.serviceName,
       requestId: this.requestId,
       message,
-      metadata: {
-        ...metadata,
-        environment: this.env.ENVIRONMENT || 'production',
-      },
+      environment: this.environment,
+      ...metadata,
     };
   }
 
@@ -176,7 +188,7 @@ export class StructuredLogger {
       const now = new Date();
       const date = now.toISOString().split('T')[0]; // YYYY-MM-DD
       const hour = now.getUTCHours().toString().padStart(2, '0');
-      const minute = now.getUTCMinutes().toString().padStart(2, '0');
+      const _minute = now.getUTCMinutes().toString().padStart(2, '0');
 
       // Create a hierarchical path: service/year/month/day/hour/timestamp-requestId.json
       const [year, month, day] = date.split('-');

@@ -12,11 +12,10 @@ name = "ecommerce-auth-preview"
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "auth-db-preview"
-database_id = "4aca0b00-b074-46ca-9b8d-0a041225fa27"  # TODO: Create separate preview DB
+database_id = "4aca0b00-b074-46ca-9b8d-0a041225fa27"  # Using production DB for preview (free tier)
 
-[[env.preview.r2_buckets]]
-binding = "LOGS_BUCKET"
-bucket_name = "ecommerce-logs-preview"
+# R2 bucket removed - free tier limitation
+# Logs will output to console only in preview
 
 [env.preview.vars]
 ENVIRONMENT = "preview"

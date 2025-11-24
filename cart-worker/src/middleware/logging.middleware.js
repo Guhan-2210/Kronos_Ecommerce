@@ -22,7 +22,7 @@ export function createLoggingMiddleware(serviceName) {
     try {
       // Log incoming request
       const url = new URL(request.url);
-      const sanitizedHeaders = sanitizeHeaders(request.headers);
+      const _sanitizedHeaders = sanitizeHeaders(request.headers);
 
       logger.info('Incoming request', {
         method: request.method,
@@ -225,5 +225,5 @@ export function withLogging(serviceName, routerFetch) {
  * Helper to get logger from request
  */
 export function getLogger(request) {
-  return request.logger;
+  return request.logger || null;
 }

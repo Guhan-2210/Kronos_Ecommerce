@@ -4,15 +4,21 @@ import { StructuredLogger } from '../../src/services/structured-logger.service.j
 
 describe('StructuredLogger Service', () => {
   let logger;
-  let consoleStub;
+  let consoleLogStub;
+  let consoleErrorStub;
+  let consoleWarnStub;
 
   beforeEach(() => {
     logger = new StructuredLogger('test-service', 'test-env', 'INFO');
-    consoleStub = sinon.stub(console, 'log');
+    consoleLogStub = sinon.stub(console, 'log');
+    consoleErrorStub = sinon.stub(console, 'error');
+    consoleWarnStub = sinon.stub(console, 'warn');
   });
 
   afterEach(() => {
-    consoleStub.restore();
+    consoleLogStub.restore();
+    consoleErrorStub.restore();
+    consoleWarnStub.restore();
   });
 
   describe('Constructor', () => {
@@ -57,8 +63,8 @@ describe('StructuredLogger Service', () => {
     it('should log info message', () => {
       logger.info('Test message');
 
-      expect(consoleStub).to.have.been.calledOnce;
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      expect(consoleLogStub).to.have.been.calledOnce;
+      const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('INFO');
       expect(loggedData.message).to.equal('Test message');
     });
@@ -66,7 +72,7 @@ describe('StructuredLogger Service', () => {
     it('should include metadata', () => {
       logger.info('Test', { key: 'value' });
 
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.key).to.equal('value');
     });
   });
@@ -75,8 +81,8 @@ describe('StructuredLogger Service', () => {
     it('should log error message', () => {
       logger.error('Error occurred');
 
-      expect(consoleStub).to.have.been.calledOnce;
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      expect(consoleErrorStub).to.have.been.calledOnce;
+      const loggedData = JSON.parse(consoleErrorStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('ERROR');
       expect(loggedData.message).to.equal('Error occurred');
     });
@@ -85,7 +91,7 @@ describe('StructuredLogger Service', () => {
       const error = new Error('Test error');
       logger.error('Failed', {}, error);
 
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      const loggedData = JSON.parse(consoleErrorStub.firstCall.args[0]);
       expect(loggedData.error).to.exist;
       expect(loggedData.error.message).to.equal('Test error');
     });
@@ -95,8 +101,8 @@ describe('StructuredLogger Service', () => {
     it('should log warning message', () => {
       logger.warn('Warning message');
 
-      expect(consoleStub).to.have.been.calledOnce;
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      expect(consoleWarnStub).to.have.been.calledOnce;
+      const loggedData = JSON.parse(consoleWarnStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('WARN');
     });
   });
@@ -106,15 +112,15 @@ describe('StructuredLogger Service', () => {
       const debugLogger = new StructuredLogger('service', 'env', 'DEBUG');
       debugLogger.debug('Debug message');
 
-      expect(consoleStub).to.have.been.calledOnce;
-      const loggedData = JSON.parse(consoleStub.firstCall.args[0]);
+      expect(consoleLogStub).to.have.been.calledOnce;
+      const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('DEBUG');
     });
 
     it('should not log debug when level is INFO', () => {
       logger.debug('Debug message');
 
-      expect(consoleStub).to.not.have.been.called;
+      expect(consoleLogStub).to.not.have.been.called;
     });
   });
 
