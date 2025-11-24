@@ -84,4 +84,7 @@ export default {
     }
     return [];
   },
+
+  // Note: log-consolidator-worker excluded (cron-only, no tests)
+  // Note: frontend-worker excluded (different build system)
 };

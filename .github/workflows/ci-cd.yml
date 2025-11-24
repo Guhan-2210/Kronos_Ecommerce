@@ -49,7 +49,7 @@ jobs:
       - name: Detect changed workers
         id: detect
         run: |
-          # Define all workers
+          # Define all workers (excludes log-consolidator - cron-only, no tests)
           ALL_WORKERS=(
             "auth-worker"
             "cart-worker"
@@ -58,7 +58,6 @@ jobs:
             "order-worker"
             "payment-worker"
             "price-worker"
-            "log-consolidator-worker"
           )
           
           # Initialize empty array
