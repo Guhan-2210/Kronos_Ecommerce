@@ -226,10 +226,18 @@ jobs:
         id: prev_version
         working-directory: ${{ matrix.worker }}
         run: |
-          echo "Getting previous deployment version..."
-          PREV_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
-          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-          echo "Previous version: $PREV_VERSION"
+          echo "Getting current deployment version (will be 'previous' after new deployment)..."
+          CURRENT_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -v "Version ID" | grep -v "^$" | head -1 | awk '{print $1}')
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "No existing deployment found (first deployment)"
+            echo "previous_version=none" >> $GITHUB_OUTPUT
+            echo "Previous version: none"
+          else
+            echo "Current version: $CURRENT_VERSION"
+            echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Previous version (for rollback): $CURRENT_VERSION"
+          fi
 
       - name: Deploy to Cloudflare Preview
         id: deploy
@@ -329,13 +337,23 @@ jobs:
           }'
 
       - name: Rollback on Health Check Failure
-        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != ''
         working-directory: ${{ matrix.worker }}
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler versions deploy ${{ steps.prev_version.outputs.previous_version }}@100% --env preview --yes
-          echo "✅ Rollback completed!"
+
+          # Verify version ID is valid (36 characters UUID format)
+          VERSION="${{ steps.prev_version.outputs.previous_version }}"
+          if [ ${#VERSION} -eq 36 ]; then
+            echo "✅ Valid version ID, proceeding with rollback..."
+            npx wrangler versions deploy ${VERSION}@100% --env preview --yes
+            echo "✅ Rollback completed!"
+          else
+            echo "❌ Invalid version ID format: ${VERSION}"
+            echo "⚠️  Cannot rollback - no valid previous version available"
+            exit 1
+          fi
 
       - name: Notify Slack - Preview Deployment Failed & Rolled Back
         if: failure() && steps.health_check.outcome == 'failure'
@@ -377,7 +395,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "*Action Taken:* ${{ steps.prev_version.outputs.previous_version != 'none' && 'Automatically rolled back to previous version' || 'No previous version available for rollback' }}"
+                  "text": "*Action Taken:* ${{ (steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != '') && 'Automatically rolled back to previous version' || '⚠️ No previous version - Cannot rollback first deployment' }}"
                 }
               },
               {
@@ -448,10 +466,18 @@ jobs:
         id: prev_version
         working-directory: ${{ matrix.worker }}
         run: |
-          echo "Getting previous production deployment version..."
-          PREV_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
-          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-          echo "Previous version: $PREV_VERSION"
+          echo "Getting current production deployment version (will be 'previous' after new deployment)..."
+          CURRENT_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -v "Version ID" | grep -v "^$" | head -1 | awk '{print $1}')
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "No existing deployment found (first deployment)"
+            echo "previous_version=none" >> $GITHUB_OUTPUT
+            echo "Previous version: none"
+          else
+            echo "Current version: $CURRENT_VERSION"
+            echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Previous version (for rollback): $CURRENT_VERSION"
+          fi
 
       - name: Deploy to Cloudflare Production
         id: deploy
@@ -584,13 +610,23 @@ jobs:
           }'
 
       - name: Rollback on Health Check Failure
-        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != ''
         working-directory: ${{ matrix.worker }}
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler versions deploy ${{ steps.prev_version.outputs.previous_version }}@100% --env production --yes
-          echo "✅ Rollback completed!"
+
+          # Verify version ID is valid (36 characters UUID format)
+          VERSION="${{ steps.prev_version.outputs.previous_version }}"
+          if [ ${#VERSION} -eq 36 ]; then
+            echo "✅ Valid version ID, proceeding with rollback..."
+            npx wrangler versions deploy ${VERSION}@100% --env production --yes
+            echo "✅ Rollback completed!"
+          else
+            echo "❌ Invalid version ID format: ${VERSION}"
+            echo "⚠️  Cannot rollback - no valid previous version available"
+            exit 1
+          fi
 
       - name: Notify Slack - Production Deployment Failed & Rolled Back
         if: failure() && steps.health_check.outcome == 'failure'
@@ -632,7 +668,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "*Action Taken:* ${{ steps.prev_version.outputs.previous_version != 'none' && 'Automatically rolled back to previous version' || 'No previous version available for rollback' }}"
+                  "text": "*Action Taken:* ${{ (steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != '') && 'Automatically rolled back to previous version' || '⚠️ No previous version - Cannot rollback first deployment' }}"
                 }
               },
               {
