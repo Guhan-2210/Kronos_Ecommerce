@@ -23,7 +23,7 @@ export default {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
       return [
-        'cd cart-worker && npm run test:coverage -- --reporter min',
+        'cd cart-worker && npm run test:coverage',
         'cd cart-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
       ];
     }
@@ -56,7 +56,7 @@ export default {
     const hasSourceChanges = files.some(file => file.includes('/src/'));
     if (hasSourceChanges) {
       return [
-        'cd order-worker && npm run test:coverage -- --reporter min',
+        'cd order-worker && npm run test:coverage',
         'cd order-worker && c8 check-coverage --lines 50 --functions 50 --branches 50',
       ];
     }
