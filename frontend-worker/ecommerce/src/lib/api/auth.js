@@ -106,12 +106,11 @@ class AuthAPI {
 
   /**
    * Get current user info
+   * Uses access_token cookie (sent automatically with credentials: 'include')
    */
-  async getMe(token) {
+  async getMe() {
     const response = await fetch(`${this.baseURL}/user/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
+      credentials: 'include'  // Sends cookies automatically
     });
 
     const data = await response.json();

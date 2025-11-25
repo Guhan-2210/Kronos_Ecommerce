@@ -7,18 +7,30 @@ import { getLogger } from '../middleware/logging.middleware.js';
 
 // Use SameSite=None for cross-origin requests (required for cookies between different domains)
 // Secure flag is required when using SameSite=None
-const COOKIE_BASE = 'Path=/; Secure; HttpOnly; SameSite=None';
+// Domain=.guhan2210.workers.dev makes cookie available to ALL subdomains (frontend, cart-worker, fulfilment-worker, etc.)
+const COOKIE_BASE = 'Path=/; Secure; HttpOnly; SameSite=None; Domain=.guhan2210.workers.dev';
+const COOKIE_BASE_ACCESS = 'Path=/; Secure; HttpOnly; SameSite=None; Domain=.guhan2210.workers.dev';
 
 function setRefreshCookies(refresh, sessionId, maxAgeDays) {
   const maxAge = maxAgeDays * 24 * 60 * 60;
   return [
-    `refresh_token=${refresh}; ${COOKIE_BASE}; Max-Age=${maxAge}`,
+    `refresh_token=${encodeURIComponent(refresh)}; ${COOKIE_BASE}; Max-Age=${maxAge}`,
     `session_id=${sessionId}; ${COOKIE_BASE}; Max-Age=${maxAge}`,
   ];
 }
 
+function setAccessTokenCookie(accessToken, maxAgeSeconds) {
+  // Set access token as HttpOnly cookie shared across all subdomains
+  // URL-encode to handle special characters in base64 tokens (+, /, =)
+  return `access_token=${encodeURIComponent(accessToken)}; ${COOKIE_BASE_ACCESS}; Max-Age=${maxAgeSeconds}`;
+}
+
 function clearRefreshCookies() {
   return [`refresh_token=; ${COOKIE_BASE}; Max-Age=0`, `session_id=; ${COOKIE_BASE}; Max-Age=0`];
+}
+
+function clearAccessTokenCookie() {
+  return `access_token=; ${COOKIE_BASE_ACCESS}; Max-Age=0`;
 }
 
 export async function signupCtrl(request, env) {
@@ -31,9 +43,15 @@ export async function signupCtrl(request, env) {
     const { access, refresh, sessionId } = await issueTokens(env, user.id, logger);
 
     const headers = new Headers({ 'Content-Type': 'application/json' });
+
+    // Set refresh token and session ID cookies (HttpOnly)
     setRefreshCookies(refresh, sessionId, parseInt(env.REFRESH_TTL_DAYS, 10)).forEach(c =>
       headers.append('Set-Cookie', c)
     );
+
+    // Set access token cookie (readable by JavaScript)
+    const accessTTL = parseInt(env.ACCESS_TOKEN_TTL_SEC || '900', 10); // Default 15 minutes
+    headers.append('Set-Cookie', setAccessTokenCookie(access, accessTTL));
 
     if (logger) {
       logger.info('User signup successful', { cfRay, userId: user.id, sessionId });
@@ -70,9 +88,15 @@ export async function loginCtrl(request, env) {
     const { access, refresh, sessionId } = await issueTokens(env, user.id, logger);
 
     const headers = new Headers({ 'Content-Type': 'application/json' });
+
+    // Set refresh token and session ID cookies (HttpOnly)
     setRefreshCookies(refresh, sessionId, parseInt(env.REFRESH_TTL_DAYS, 10)).forEach(c =>
       headers.append('Set-Cookie', c)
     );
+
+    // Set access token cookie (readable by JavaScript)
+    const accessTTL = parseInt(env.ACCESS_TOKEN_TTL_SEC || '900', 10); // Default 15 minutes
+    headers.append('Set-Cookie', setAccessTokenCookie(access, accessTTL));
 
     if (logger) {
       logger.info('User login successful', { cfRay, userId: user.id, sessionId });
@@ -106,6 +130,10 @@ function parseCookie(req, name) {
 export async function refreshCtrl(request, env) {
   const cfRay = request.headers.get('cf-ray');
   const logger = getLogger(request);
+  const origin = request.headers.get('origin');
+  const cookieHeader = request.headers.get('cookie');
+  const userAgent = request.headers.get('user-agent');
+  const referer = request.headers.get('referer');
 
   try {
     const refresh = parseCookie(request, 'refresh_token');
@@ -114,18 +142,27 @@ export async function refreshCtrl(request, env) {
     if (logger) {
       logger.info('Token refresh attempt', {
         cfRay,
+        origin,
+        referer,
+        userAgent: userAgent?.substring(0, 100),
         hasRefresh: !!refresh,
         hasSession: !!sessionId,
         sessionId,
+        cookieHeader: cookieHeader ? `Present (${cookieHeader.length} chars)` : 'Missing',
       });
     } else {
       log('info', 'refresh_attempt', {
         cfRay,
+        origin,
+        referer,
+        userAgent: userAgent?.substring(0, 100),
         hasRefresh: !!refresh,
         hasSession: !!sessionId,
         sessionId,
         refreshLength: refresh?.length,
         refreshPrefix: refresh?.substring(0, 20),
+        cookieHeader: cookieHeader ? `Present (${cookieHeader.length} chars)` : 'Missing',
+        allCookies: cookieHeader || 'NONE',
       });
     }
 
@@ -149,9 +186,15 @@ export async function refreshCtrl(request, env) {
     const { access, refresh: newRefresh } = await refreshTokens(env, sessionId, refresh, logger);
 
     const headers = new Headers({ 'Content-Type': 'application/json' });
+
+    // Set refresh token and session ID cookies (HttpOnly)
     setRefreshCookies(newRefresh, sessionId, parseInt(env.REFRESH_TTL_DAYS, 10)).forEach(c =>
       headers.append('Set-Cookie', c)
     );
+
+    // Set access token cookie (readable by JavaScript)
+    const accessTTL = parseInt(env.ACCESS_TOKEN_TTL_SEC || '900', 10); // Default 15 minutes
+    headers.append('Set-Cookie', setAccessTokenCookie(access, accessTTL));
 
     log('info', 'refresh_success', { cfRay, sessionId });
     return new Response(JSON.stringify({ access_token: access }), { status: 200, headers });
@@ -176,7 +219,10 @@ export async function logoutCtrl(request, env) {
     await revokeSession(env, sessionId);
 
     const headers = new Headers({ 'Content-Type': 'application/json' });
+
+    // Clear all auth cookies
     clearRefreshCookies().forEach(c => headers.append('Set-Cookie', c));
+    headers.append('Set-Cookie', clearAccessTokenCookie());
 
     log('info', 'logout_success', { cfRay, sessionId });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
@@ -193,7 +239,10 @@ export async function logoutAllCtrl(request, env) {
     await revokeAllSessions(env, auth.userId);
 
     const headers = new Headers({ 'Content-Type': 'application/json' });
+
+    // Clear all auth cookies
     clearRefreshCookies().forEach(c => headers.append('Set-Cookie', c));
+    headers.append('Set-Cookie', clearAccessTokenCookie());
 
     log('info', 'logout_all_success', { cfRay, userId: auth.userId });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });

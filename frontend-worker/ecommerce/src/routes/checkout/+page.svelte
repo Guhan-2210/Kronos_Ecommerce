@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.js';
   import { cart, cartItemCount, cartTotal } from '$lib/stores/cart.js';
   import { cartAPI } from '$lib/api/cart.js';
@@ -110,13 +111,16 @@
     // Check if window is closed every second
     checkPaymentInterval = setInterval(() => {
       if (paymentWindow && paymentWindow.closed) {
+        console.log('🪟 Payment window closed');
         clearInterval(checkPaymentInterval);
         paymentWindow = null;
         
         // Don't show error immediately - wait for postMessage
         // The popup might have successfully completed and sent a message
-        // Give it 2 seconds to receive the message
+        // Give it 3 seconds to receive the message (increased from 2s)
         setTimeout(async () => {
+          console.log('⏰ Timeout fired, checking payment progress state:', paymentInProgress);
+          
           // Only show error if we're still in payment progress state
           // (meaning no success message was received)
           if (paymentInProgress) {
@@ -126,7 +130,7 @@
               // Cancel the order and release reservations
               try {
                 const pendingOrder = JSON.parse(pendingOrderStr);
-                console.log('🚫 Payment window closed, cancelling order:', pendingOrder.order_id);
+                console.log('🚫 Payment window closed without success message, cancelling order:', pendingOrder.order_id);
                 await orderAPI.cancelOrder(pendingOrder.order_id);
                 console.log('✅ Order cancelled and reservations released');
                 sessionStorage.removeItem('pending_order');
@@ -138,8 +142,10 @@
               paymentInProgress = false;
               error = 'Payment window was closed. If you completed the payment, please check your order history or contact support.';
             }
+          } else {
+            console.log('✅ Payment already processed, skipping cancellation');
           }
-        }, 2000);
+        }, 3000);
       }
     }, 1000);
   }
@@ -181,26 +187,57 @@
       return;
     }
 
-    const { type, orderId, status, error: paymentError } = event.data;
+    const { type, orderId, paypalOrderId, status, error: paymentError } = event.data;
 
     console.log('📨 Received message from payment window:', event.data);
 
-    if (type === 'PAYMENT_SUCCESS') {
-      // Payment successful!
-      console.log('✅ Payment successful, redirecting to success page');
+    if (type === 'PAYMENT_COMPLETE') {
+      // ✅ Payment complete! Now call complete-order in the parent window
+      console.log('✅ Payment complete! Calling complete-order endpoint in parent window...');
       
-      // Clear the payment in progress state
+      // CRITICAL: Clear the payment in progress state IMMEDIATELY
       paymentInProgress = false;
       
+      // Clear the interval immediately
       if (checkPaymentInterval) {
         clearInterval(checkPaymentInterval);
+        checkPaymentInterval = null;
       }
       
-      // Navigate to success page in main window
-      // Add a small delay to ensure the popup has closed
-      setTimeout(() => {
-        goto('/payment/success?status=completed&order_id=' + orderId);
-      }, 500);
+      submitting = true;
+      error = null;
+      
+      try {
+        console.log('📡 [PARENT WINDOW] Calling complete-order endpoint:', { orderId, paypalOrderId });
+        
+        // Call complete-order endpoint in parent window (visible in network tab!)
+        const response = await cartAPI.completeOrder(orderId, paypalOrderId);
+        
+        console.log('✅ [PARENT WINDOW] Order completion response:', response);
+        console.log('📦 Order Summary:', JSON.stringify(response.data?.order_summary, null, 2));
+
+        if (response.success) {
+          // Clear cart and session data
+          if (browser) {
+            localStorage.removeItem('cart_id');
+          }
+          sessionStorage.setItem(`order_processed_${orderId}`, 'true');
+          sessionStorage.removeItem('pending_order');
+          cart.clearCart();
+
+          console.log('✅ Order completed successfully in parent window, navigating to success page...');
+          
+          // Navigate to success page immediately (no delay needed)
+          goto('/payment/success?status=completed&order_id=' + orderId);
+        } else {
+          error = response.message || 'Failed to complete order';
+        }
+      } catch (err) {
+        console.error('❌ [PARENT WINDOW] Order completion error:', err);
+        error = err.message || 'Failed to complete order. Please contact support.';
+      } finally {
+        submitting = false;
+      }
     } else if (type === 'PAYMENT_CANCELLED') {
       // Payment was cancelled
       console.log('🚫 Payment cancelled by user');
@@ -271,9 +308,23 @@
     return () => {
       if (checkPaymentInterval) {
         clearInterval(checkPaymentInterval);
+        checkPaymentInterval = null;
       }
       window.removeEventListener('message', handlePaymentMessage);
     };
+  });
+
+  // Additional cleanup on component destroy
+  onDestroy(() => {
+    console.log('🧹 Checkout component destroying, cleaning up intervals...');
+    if (checkPaymentInterval) {
+      clearInterval(checkPaymentInterval);
+      checkPaymentInterval = null;
+    }
+    if (paymentWindow && !paymentWindow.closed) {
+      console.log('🪟 Closing payment window during cleanup');
+      paymentWindow.close();
+    }
   });
 
   async function handleShippingSubmit() {
@@ -727,7 +778,14 @@
                         />
                         <div>
                           <p class="font-medium text-slate-900 capitalize">{option.mode}</p>
-                          <p class="text-sm text-slate-600">{option.description}</p>
+                          {#if option.estimatedDays}
+                            <p class="text-sm font-semibold text-blue-600 mt-0.5">
+                              ⏱️ {option.estimatedDays.min === option.estimatedDays.max 
+                                ? `${option.estimatedDays.min} day${option.estimatedDays.min > 1 ? 's' : ''}`
+                                : `${option.estimatedDays.min}-${option.estimatedDays.max} days`}
+                            </p>
+                          {/if}
+                          <p class="text-xs text-slate-600 mt-0.5">{option.description}</p>
                         </div>
                       </div>
                       <p class="font-bold text-slate-900">
@@ -783,7 +841,16 @@
 
             {#if selectedDelivery}
               <div class="flex justify-between text-slate-600">
-                <span>Shipping ({selectedDelivery.mode})</span>
+                <div>
+                  <div>Shipping ({selectedDelivery.mode})</div>
+                  {#if selectedDelivery.estimatedDays}
+                    <div class="text-xs text-blue-600 font-semibold mt-0.5">
+                      ⏱️ {selectedDelivery.estimatedDays.min === selectedDelivery.estimatedDays.max 
+                        ? `${selectedDelivery.estimatedDays.min} day${selectedDelivery.estimatedDays.min > 1 ? 's' : ''}`
+                        : `${selectedDelivery.estimatedDays.min}-${selectedDelivery.estimatedDays.max} days`}
+                    </div>
+                  {/if}
+                </div>
                 <span class="font-medium text-slate-900">
                   {selectedDelivery.cost === 0 ? 'FREE' : formatPrice(selectedDelivery.cost)}
                 </span>

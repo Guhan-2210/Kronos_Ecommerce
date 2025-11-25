@@ -1,6 +1,8 @@
 <script>
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.js';
   import { cart } from '$lib/stores/cart.js';
   import { cartAPI } from '$lib/api/cart.js';
@@ -20,16 +22,50 @@
     console.log('🪟 Running in popup:', isPopup);
   }
 
-  // Wait for auth to be initialized before attempting to complete order
-  $: if ($auth.initialized && !authReady) {
-    console.log('🔐 Auth initialized, ready to complete order', {
-      isAuthenticated: $auth.isAuthenticated,
-      hasToken: !!$auth.token,
-      user: $auth.user?.email
-    });
-    authReady = true;
-    completeOrder();
-  }
+  // Initialize auth and then complete order
+  onMount(async () => {
+    console.log('🚀 Payment success page mounted');
+    
+    // CRITICAL FIX: When returning from PayPal, cookies might not be sent with the initial request
+    // due to SameSite restrictions. Force a token refresh to re-establish authentication.
+    console.log('🔄 Forcing authentication refresh after PayPal redirect...');
+    
+    try {
+      // Try to refresh authentication explicitly
+      await auth.refreshAuth();
+      console.log('✅ Auth refresh successful');
+    } catch (refreshError) {
+      console.error('❌ Auth refresh failed:', refreshError);
+      // Continue anyway - completeOrder will handle auth failure
+    }
+    
+    // Wait for auth to be initialized by the layout
+    // If it's already initialized, proceed immediately
+    if ($auth.initialized) {
+      console.log('✅ Auth already initialized by layout', {
+        isAuthenticated: $auth.isAuthenticated,
+        hasToken: !!$auth.token,
+        user: $auth.user?.email
+      });
+      authReady = true;
+      await completeOrder();
+    } else {
+      // Subscribe to auth changes and wait for initialization
+      console.log('⏳ Waiting for auth initialization from layout...');
+      const unsubscribe = auth.subscribe((authState) => {
+        if (authState.initialized && !authReady) {
+          console.log('✅ Auth initialized:', {
+            isAuthenticated: authState.isAuthenticated,
+            hasToken: !!authState.token,
+            user: authState.user?.email
+          });
+          unsubscribe();
+          authReady = true;
+          completeOrder();
+        }
+      });
+    }
+  });
 
   async function completeOrder() {
     console.log('📦 Starting order completion...', {
@@ -48,9 +84,24 @@
     }
 
     if (!$auth.isAuthenticated) {
-      console.error('❌ User not authenticated');
-      error = 'Please login to complete your order';
+      console.error('❌ User not authenticated', {
+        hasToken: !!$auth.token,
+        user: $auth.user,
+        isPopup: isPopup
+      });
+      
+      // Auth already tried during layout initialization
+      // If still not authenticated, the session truly expired
+      error = 'Your session has expired. Please login again to complete your order.';
       loading = false;
+      
+      // If in popup, notify parent window
+      if (isPopup && window.opener) {
+        window.opener.postMessage({
+          type: 'PAYMENT_AUTH_FAILED',
+          error: 'Session expired'
+        }, window.location.origin);
+      }
       return;
     }
 
@@ -68,6 +119,11 @@
       if (statusParam === 'completed' && urlOrderId) {
         // Order already processed in popup, just show success
         console.log('✅ Order already completed in popup, showing success');
+        
+        // CRITICAL: Clear cart_id from localStorage IMMEDIATELY
+        if (browser) {
+          localStorage.removeItem('cart_id');
+        }
         
         // Mark as processed and show success
         sessionStorage.setItem(`order_processed_${urlOrderId}`, 'true');
@@ -102,25 +158,63 @@
 
       const pendingOrder = JSON.parse(pendingOrderStr);
       
-      console.log('🔄 Completing order:', {
+      console.log('🔄 PayPal payment captured:', {
         order_id: pendingOrder.order_id,
         paypal_order_id: paypalOrderId,
-        stored_paypal_id: pendingOrder.paypal_order_id
+        isPopup
       });
-      
+
+      // ✅ If running in popup, send order IDs to parent window for completion
+      // This way the complete-order endpoint call is visible in the parent tab's network inspector
+      if (isPopup && window.opener) {
+        console.log('📤 Sending PAYMENT_COMPLETE message to parent window for order completion...');
+        window.opener.postMessage({
+          type: 'PAYMENT_COMPLETE',
+          orderId: pendingOrder.order_id,
+          paypalOrderId: paypalOrderId,
+        }, window.location.origin);
+        
+        // Close popup quickly after sending message
+        console.log('✅ Message sent, closing popup in 500ms...');
+        setTimeout(() => {
+          window.close();
+        }, 500);
+        
+        return;
+      }
+
+      // Non-popup flow: Complete order directly in this window
+      console.log('🔄 Not a popup, completing order directly in this window...');
+
       // Check if order was already processed (prevent double submission)
       const alreadyProcessed = sessionStorage.getItem(`order_processed_${pendingOrder.order_id}`);
       if (alreadyProcessed) {
+        console.log('✅ Order already processed, skipping completion');
         orderConfirmed = true;
         orderDetails = {
           order_id: pendingOrder.order_id,
           status: 'confirmed'
         };
         loading = false;
+        
+        // If in popup, notify parent and close
+        if (isPopup && window.opener) {
+          window.opener.postMessage({
+            type: 'PAYMENT_SUCCESS',
+            orderId: pendingOrder.order_id,
+            status: 'confirmed'
+          }, window.location.origin);
+          
+          setTimeout(() => {
+            window.close();
+          }, 500);
+        }
+        
         return;
       }
       
       // Complete the order (capture payment and reduce stock)
+      console.log('🔄 Calling completeOrder API...');
       const response = await cartAPI.completeOrder(
         pendingOrder.order_id,
         paypalOrderId
@@ -130,44 +224,19 @@
 
       if (response.success) {
         orderConfirmed = true;
-        orderDetails = {
-          order_id: pendingOrder.order_id,
-          status: response.data.status
-        };
+        orderDetails = response.data;
 
-        // Mark order as processed to prevent double submission
-        sessionStorage.setItem(`order_processed_${pendingOrder.order_id}`, 'true');
-        
-        // Clear pending order from storage
-        sessionStorage.removeItem('pending_order');
-        
-        // Clear cart from store
-        cart.clearCart();
-
-        // If running in popup, notify parent and close
-        if (isPopup && window.opener) {
-          console.log('✅ Payment successful in popup, notifying parent window');
-          window.opener.postMessage({
-            type: 'PAYMENT_SUCCESS',
-            orderId: pendingOrder.order_id,
-            status: response.data.status
-          }, window.location.origin);
-          
-          // Close popup after a brief delay
-          setTimeout(() => {
-            window.close();
-          }, 1000);
+        // Clear cart_id from localStorage IMMEDIATELY
+        if (browser) {
+          localStorage.removeItem('cart_id');
         }
+
+        // Mark order as processed
+        sessionStorage.setItem(`order_processed_${pendingOrder.order_id}`, 'true');
+        sessionStorage.removeItem('pending_order');
+        cart.clearCart();
       } else {
         error = response.message || 'Failed to complete order';
-        
-        // If running in popup, notify parent of error
-        if (isPopup && window.opener) {
-          window.opener.postMessage({
-            type: 'PAYMENT_ERROR',
-            error: error
-          }, window.location.origin);
-        }
       }
     } catch (err) {
       console.error('Order completion error:', err);
@@ -176,6 +245,12 @@
       // Check if this is a duplicate capture error (order already completed)
       if (err.message && err.message.includes('already captured')) {
         // Order was already processed, show success
+        
+        // CRITICAL: Clear cart_id from localStorage IMMEDIATELY
+        if (browser) {
+          localStorage.removeItem('cart_id');
+        }
+        
         orderConfirmed = true;
         orderDetails = {
           order_id: pendingOrder?.order_id || 'unknown',
@@ -196,7 +271,7 @@
           
           setTimeout(() => {
             window.close();
-          }, 1000);
+          }, 5000); // ⏱️ 5 seconds to view network tab
         }
       } else {
         // Notify parent of error if in popup
@@ -289,7 +364,26 @@
         
         <div class="bg-slate-50 rounded-lg p-6 mb-8">
           <div class="text-sm text-slate-600 mb-2">Order ID</div>
-          <div class="text-xl font-mono font-bold text-slate-900">{orderDetails.order_id}</div>
+          <div class="text-xl font-mono font-bold text-slate-900">{orderDetails.order_id || orderDetails.order_data?.id}</div>
+          
+          {#if orderDetails.order_data}
+            <div class="mt-4 pt-4 border-t border-slate-200">
+              <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span class="text-slate-600">Order Total:</span>
+                  <span class="font-semibold text-slate-900 ml-2">
+                    ${(orderDetails.order_data.order_data?.total_amount || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span class="text-slate-600">Items:</span>
+                  <span class="font-semibold text-slate-900 ml-2">
+                    {orderDetails.order_data.order_data?.products?.length || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
         
         <div class="space-y-4 text-slate-600 mb-8">

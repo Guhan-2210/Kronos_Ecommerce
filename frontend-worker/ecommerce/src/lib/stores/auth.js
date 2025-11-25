@@ -10,7 +10,6 @@ let authStoreInstance = null;
 function createAuthStore() {
   const { subscribe, set, update } = writable({
     user: null,
-    token: null,
     isAuthenticated: false,
     isLoading: true, // Start loading until auth is initialized
     initialized: false
@@ -22,21 +21,6 @@ function createAuthStore() {
     set,
     update
   };
-
-  // Helper function to decode JWT and extract user_id
-  function decodeJWT(token) {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map((c) => {
-        return `%${  (`00${  c.charCodeAt(0).toString(16)}`).slice(-2)}`;
-      }).join(''));
-      return JSON.parse(jsonPayload);
-    } catch (e) {
-      console.error('Failed to decode JWT:', e);
-      return null;
-    }
-  }
 
   async function initializeAuth() {
     // Get current state properly
@@ -50,39 +34,21 @@ function createAuthStore() {
 
     try {
       console.log('🔄 Attempting to restore authentication...');
-      console.log('🍪 Available cookies:', document.cookie);
       console.log('🌐 Current origin:', window.location.origin);
 
-      // Try to refresh access token using HTTP-only refresh token cookie
-      const refreshResponse = await authAPI.refresh();
-      const newToken = refreshResponse.access_token;
-
-      if (!newToken) {
-        throw new Error('No access token received from refresh');
-      }
-
-      console.log('✅ Refresh successful, getting user info...');
-
-      // Decode JWT to get user_id
-      const tokenPayload = decodeJWT(newToken);
-      const userId = tokenPayload?.user_id;
-
-      // Get user info with the new token
-      const userResponse = await authAPI.getMe(newToken);
+      // Try to get user info - access_token cookie will be sent automatically
+      // If token is invalid/expired, this will return 401
+      const userResponse = await authAPI.getMe();
       const user = userResponse.user;
 
       if (!user) {
         throw new Error('No user data received');
       }
 
-      // Add user ID to user object
-      user.id = userId;
-
-      console.log('✅ User info retrieved:', user.email, 'User ID:', userId);
+      console.log('✅ User authenticated:', user.email);
 
       set({
         user,
-        token: newToken,
         isAuthenticated: true,
         isLoading: false,
         initialized: true
@@ -90,12 +56,37 @@ function createAuthStore() {
 
       console.log('🎉 Authentication restored successfully!');
     } catch (error) {
-      console.log('❌ Authentication refresh failed:', error.message);
+      console.log('❌ Authentication initialization failed:', error.message);
+
+      // If getMe fails with 401, try refresh
+      if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+        try {
+          console.log('🔄 Access token expired, attempting refresh...');
+          await authAPI.refresh(); // Sets new cookies
+
+          // Retry getting user info
+          const userResponse = await authAPI.getMe();
+          const user = userResponse.user;
+
+          if (user) {
+            console.log('✅ User authenticated after refresh:', user.email);
+            set({
+              user,
+              isAuthenticated: true,
+              isLoading: false,
+              initialized: true
+            });
+            console.log('🎉 Authentication restored via refresh!');
+            return;
+          }
+        } catch (refreshError) {
+          console.log('❌ Refresh failed:', refreshError.message);
+        }
+      }
 
       // Mark as initialized but not authenticated
       set({
         user: null,
-        token: null,
         isAuthenticated: false,
         isLoading: false,
         initialized: true
@@ -111,28 +102,22 @@ function createAuthStore() {
      */
     async login(email, password) {
       try {
-        const response = await authAPI.login(email, password);
-        const token = response.access_token;
+        // Login sets access_token cookie (shared across all *.guhan2210.workers.dev domains)
+        await authAPI.login(email, password);
         
-        // Decode JWT to get user_id
-        const tokenPayload = decodeJWT(token);
-        const userId = tokenPayload?.user_id;
-        
-        // Get user info
-        const userResponse = await authAPI.getMe(token);
+        // Get user info - access_token cookie sent automatically
+        const userResponse = await authAPI.getMe();
         const user = userResponse.user;
 
         console.log('User logged in:', user); // Debug log
         
-        // Ensure user has email and id
+        // Ensure user has email
         if (!user.email) {
           user.email = email;
         }
-        user.id = userId;
 
         set({
           user,
-          token,
           isAuthenticated: true,
           isLoading: false,
           initialized: true
@@ -149,31 +134,25 @@ function createAuthStore() {
      */
     async signup(email, password, name, phone, address) {
       try {
-        const response = await authAPI.signup(email, password, name, phone, address);
-        const token = response.access_token;
+        // Signup sets access_token cookie (shared across all *.guhan2210.workers.dev domains)
+        await authAPI.signup(email, password, name, phone, address);
         
-        // Decode JWT to get user_id
-        const tokenPayload = decodeJWT(token);
-        const userId = tokenPayload?.user_id;
-        
-        // Get user info
-        const userResponse = await authAPI.getMe(token);
+        // Get user info - access_token cookie sent automatically
+        const userResponse = await authAPI.getMe();
         const user = userResponse.user;
 
         console.log('User signed up:', user); // Debug log
         
-        // Ensure user has email, name and id
+        // Ensure user has email and name
         if (!user.email) {
           user.email = email;
         }
         if (!user.name && name) {
           user.name = name;
         }
-        user.id = userId;
 
         set({
           user,
-          token,
           isAuthenticated: true,
           isLoading: false,
           initialized: true
@@ -190,6 +169,7 @@ function createAuthStore() {
      */
     async logout() {
       try {
+        // Backend clears all cookies
         await authAPI.logout();
       } catch (error) {
         console.error('Logout error:', error);
@@ -197,7 +177,6 @@ function createAuthStore() {
         // Clear state
         set({
           user: null,
-          token: null,
           isAuthenticated: false,
           isLoading: false,
           initialized: false
@@ -210,34 +189,26 @@ function createAuthStore() {
      */
     async refreshToken() {
       try {
-        const response = await authAPI.refresh();
-        const newToken = response.access_token;
+        // Refresh sets new cookies automatically
+        await authAPI.refresh();
 
-        // Update token in memory only
-        update(state => ({
-          ...state,
-          token: newToken
-        }));
-
-        // Get updated user info
-        const userResponse = await authAPI.getMe(newToken);
+        // Get updated user info - new access_token cookie sent automatically
+        const userResponse = await authAPI.getMe();
         const user = userResponse.user;
 
         update(state => ({
           ...state,
           user,
-          token: newToken,
           isAuthenticated: true,
           initialized: true
         }));
 
-        return { success: true, token: newToken };
+        return { success: true };
       } catch (error) {
         // Refresh failed - clear authentication state
         console.error('Token refresh failed:', error.message);
         set({
           user: null,
-          token: null,
           isAuthenticated: false,
           isLoading: false
         });
@@ -256,13 +227,13 @@ function createAuthStore() {
     },
 
     /**
-     * Check if user is authenticated and refresh token if needed
+     * Check if user is authenticated
      */
     async checkAuth() {
       return new Promise((resolve) => {
         const unsubscribe = subscribe(state => {
           unsubscribe();
-          if (state.isAuthenticated && state.token) {
+          if (state.isAuthenticated) {
             resolve({ authenticated: true, user: state.user });
           } else {
             resolve({ authenticated: false });
@@ -282,33 +253,17 @@ function createAuthStore() {
     },
 
     /**
-     * Get current access token
-     */
-    getToken() {
-      let currentToken = null;
-      const unsubscribe = subscribe(state => {
-        currentToken = state.token;
-      });
-      unsubscribe();
-      return currentToken;
-    },
-
-    /**
      * Handle API response with automatic token refresh on 401
      */
     async handleApiResponse(response, originalRequest) {
       if (response.status === 401) {
-        // Try to refresh token
+        // Try to refresh token (sets new cookies)
         const refreshResult = await this.refreshToken();
         if (refreshResult.success) {
-          // Retry the original request with new token
-          const newToken = refreshResult.token;
-          const newHeaders = new Headers(originalRequest.headers);
-          newHeaders.set('Authorization', `Bearer ${newToken}`);
-
+          // Retry the original request - new cookies will be sent automatically
           return fetch(originalRequest.url, {
             ...originalRequest,
-            headers: newHeaders
+            credentials: 'include'
           });
         }
       }

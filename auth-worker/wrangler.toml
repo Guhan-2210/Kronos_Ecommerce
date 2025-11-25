@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# D1 Database binding (default/top-level)
+[[d1_databases]]
+binding = "DB"
+database_name = "auth-db-prod"
+database_id = "4aca0b00-b074-46ca-9b8d-0a041225fa27"
+
 # ============================================
 # PREVIEW ENVIRONMENT (for PR testing)
 # ============================================
@@ -27,6 +33,7 @@ REFRESH_TTL_DAYS = "30"
 DATA_ENC_KEY_B64 = "UZjNNr4C5fy4D8ctO+vvsg2/mu3xFRCggPbc95h1fCk="
 PII_INDEX_KEY_B64 = "eRohDyOA9oViPUrd7m8lqnJQkKyf4WzHL98MEOfuoIw="
 ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HMAC_SECRET = "p8mK9nL2qR4sT6vX8yZ0aC2eF4gH6jK8mN0pQ2rS4uW6xY8zA0bC2dE4fG6hI8j="
 HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
 
 # ============================================
@@ -54,4 +61,5 @@ REFRESH_TTL_DAYS = "30"
 DATA_ENC_KEY_B64 = "UZjNNr4C5fy4D8ctO+vvsg2/mu3xFRCggPbc95h1fCk="
 PII_INDEX_KEY_B64 = "eRohDyOA9oViPUrd7m8lqnJQkKyf4WzHL98MEOfuoIw="
 ACCESS_TOKEN_SECRET_B64 = "3IyKNGRZHw0NPCCpDe/xfj/WMHNnvBvJazvWR++ClaM="
+HMAC_SECRET = "p8mK9nL2qR4sT6vX8yZ0aC2eF4gH6jK8mN0pQ2rS4uW6xY8zA0bC2dE4fG6hI8j="
 HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"

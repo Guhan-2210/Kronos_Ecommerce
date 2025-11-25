@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# D1 Database binding (default/top-level)
+[[d1_databases]]
+binding = "DB"
+database_name = "price_db"
+database_id = "4cf45420-1fcd-43a3-8723-6bcd8c1fa3a0"
+
 # ============================================
 # PREVIEW ENVIRONMENT (for PR testing)
 # ============================================

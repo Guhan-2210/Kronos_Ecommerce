@@ -4,6 +4,7 @@ const ALLOWED_ORIGINS = [
   'https://localhost:5173', // HTTPS localhost for secure cookie support
   'http://localhost:4173',
   'https://localhost:4173',
+  'https://ecommerce-frontend.guhan2210.workers.dev', // Production frontend worker
   'https://main.kronos-311.pages.dev',
   'https://kronos-311.pages.dev',
 ];

@@ -26,7 +26,7 @@ on:
 
 # Grant permissions for GitHub token
 permissions:
-  contents: read
+  contents: write # Allow auto-fix commits
   pull-requests: write
   issues: write
 
@@ -34,6 +34,7 @@ env:
   NODE_VERSION: 20
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
 jobs:
   # ========================================
@@ -50,7 +51,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for accurate diff
+          fetch-depth: 0 # Fetch all history for accurate diff
 
       - name: Detect changed workers
         id: detect
@@ -65,10 +66,10 @@ jobs:
             "payment-worker"
             "price-worker"
           )
-          
+
           # Initialize empty array
           CHANGED_WORKERS=()
-          
+
           # For PRs, compare against target branch
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BASE_REF="${{ github.event.pull_request.base.sha }}"
@@ -84,15 +85,15 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "Comparing $BASE_REF...$HEAD_REF"
-          
+
           # Get changed files
           CHANGED_FILES=$(git diff --name-only $BASE_REF $HEAD_REF || echo "")
-          
+
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          
+
           # Check each worker for changes
           for worker in "${ALL_WORKERS[@]}"; do
             if echo "$CHANGED_FILES" | grep -q "^${worker}/src/"; then
@@ -100,7 +101,7 @@ jobs:
               CHANGED_WORKERS+=("$worker")
             fi
           done
-          
+
           # Convert to JSON array
           if [ ${#CHANGED_WORKERS[@]} -eq 0 ]; then
             echo "workers=[]" >> $GITHUB_OUTPUT
@@ -147,6 +148,53 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             ${{ matrix.worker }}/package-lock.json
+
+      - name: Install root dependencies for lint/prettier
+        run: npm ci
+
+      - name: Auto-fix linting and formatting issues
+        run: |
+          echo "🎨 Step 1: Prettier formatting (handles all formatting including indentation)..."
+          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier encountered issues"
+
+          echo "🔧 Step 2: ESLint auto-fix (fixes code issues, not formatting)..."
+          npx eslint "${{ matrix.worker }}/**/*.js" --fix || echo "⚠️ Some ESLint issues could not be auto-fixed"
+
+          echo "🎨 Step 3: Final Prettier pass (ensure consistent formatting)..."
+          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier encountered issues"
+
+          echo "✅ Auto-fix completed"
+
+      - name: Check for changes after auto-fix
+        id: check_changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes from auto-fix"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Auto-fix made changes"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            git diff --stat
+          fi
+
+      - name: Commit and push auto-fixes
+        if: steps.check_changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add "${{ matrix.worker }}/**/*.js" "${{ matrix.worker }}/**/*.json"
+          git commit -m "ci: auto-fix linting and formatting issues in ${{ matrix.worker }}"
+          git push
+
+      - name: Run ESLint on worker
+        run: |
+          echo "🔍 Running ESLint on ${{ matrix.worker }}..."
+          npx eslint "${{ matrix.worker }}/**/*.js" || echo "⚠️ ESLint found issues (non-blocking)"
+
+      - name: Run Prettier Check on worker
+        run: |
+          echo "🎨 Running Prettier check on ${{ matrix.worker }}..."
+          npx prettier --check "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier found formatting issues (non-blocking)"
 
       - name: Install worker dependencies
         working-directory: ${{ matrix.worker }}
@@ -212,10 +260,21 @@ jobs:
         id: prev_version
         working-directory: ${{ matrix.worker }}
         run: |
-          echo "Getting previous deployment version..."
-          PREV_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
-          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-          echo "Previous version: $PREV_VERSION"
+          echo "Getting current deployment version (will be 'previous' after new deployment)..."
+          # Use 'versions list' to get all versions sorted by creation time (newest first)
+          # Extract the FIRST version ID (currently deployed version)
+          CURRENT_VERSION=$(npx wrangler versions list --env preview 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "No existing deployment found (first deployment)"
+            echo "previous_version=none" >> $GITHUB_OUTPUT
+            echo "Previous version: none"
+          else
+            echo "Current version (newest): $CURRENT_VERSION"
+            echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "This will be the 'previous' version after new deployment"
+            echo "Previous version (for rollback): $CURRENT_VERSION"
+          fi
 
       - name: Deploy to Cloudflare Preview
         id: deploy
@@ -233,13 +292,24 @@ jobs:
         id: health_check
         run: |
           WORKER_NAME="${{ matrix.worker }}"
-          HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
-          
+          # Map worker folder names to their actual preview worker names
+          case $WORKER_NAME in
+            auth-worker)
+              # Only auth-worker has "ecommerce-" prefix in preview
+              HEALTH_URL="https://ecommerce-auth-preview.guhan2210.workers.dev/health"
+              ;;
+            *)
+              # All other workers: Keep full name and add "-preview"
+              # e.g., cart-worker → cart-worker-preview
+              HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
+              ;;
+          esac
+
           echo "🏥 Running health check on $HEALTH_URL"
-          
+
           MAX_RETRIES=5
           RETRY_COUNT=0
-          
+
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
             echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
@@ -256,19 +326,135 @@ jobs:
               sleep 10
             fi
           done
-          
+
           echo "❌ Health check failed after $MAX_RETRIES attempts"
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
 
+      - name: Notify Slack - Preview Deployment Success
+        if: success() && steps.health_check.outputs.status == 'success'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Preview Deployment Successful - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Preview Deployment Successful"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🟡 Preview"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`${{ github.head_ref || github.ref_name }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health Check:*\n✅ Passed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Preview URL:* https://${{ matrix.worker }}-preview.guhan2210.workers.dev"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.pull_request.html_url || github.event.head_commit.url }}|View PR/Commit>"
+                }
+              }
+            ]
+          }'
+
       - name: Rollback on Health Check Failure
-        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != ''
         working-directory: ${{ matrix.worker }}
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler rollback --env preview --version-id ${{ steps.prev_version.outputs.previous_version }}
-          echo "✅ Rollback completed!"
+
+          # Verify version ID is valid (36 characters UUID format)
+          VERSION="${{ steps.prev_version.outputs.previous_version }}"
+          if [ ${#VERSION} -eq 36 ]; then
+            echo "✅ Valid version ID, proceeding with rollback..."
+            npx wrangler versions deploy ${VERSION}@100% --env preview --yes
+            echo "✅ Rollback completed!"
+          else
+            echo "❌ Invalid version ID format: ${VERSION}"
+            echo "⚠️  Cannot rollback - no valid previous version available"
+            exit 1
+          fi
+
+      - name: Notify Slack - Preview Deployment Failed & Rolled Back
+        if: failure() && steps.health_check.outcome == 'failure'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🚨 Preview Deployment Failed - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚨 Preview Deployment Failed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🟡 Preview"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`${{ github.head_ref || github.ref_name }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n❌ Health check failed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Action Taken:* ${{ (steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != '') && 'Automatically rolled back to previous version' || '⚠️ No previous version - Cannot rollback first deployment' }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.pull_request.html_url || github.event.head_commit.url }}|View PR/Commit>"
+                }
+              }
+            ]
+          }'
 
       - name: Comment PR with deployment status
         if: github.event_name == 'pull_request'
@@ -278,18 +464,18 @@ jobs:
             const worker = '${{ matrix.worker }}';
             const status = '${{ steps.health_check.outputs.status }}';
             const url = `https://${worker}-preview.guhan2210.workers.dev/health`;
-            
+
             let emoji = status === 'success' ? '✅' : '❌';
             let message = status === 'success' ? 'Deployed successfully!' : 'Health check failed - rolled back';
-            
+
             const comment = `### ${emoji} Preview Deployment: \`${worker}\`
-            
+
             **Status:** ${message}
             **Environment:** Preview
             **Health Check:** ${url}
-            
+
             ${status === 'success' ? '🎉 Ready for testing!' : '⚠️ Deployment failed and was rolled back'}`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -328,10 +514,21 @@ jobs:
         id: prev_version
         working-directory: ${{ matrix.worker }}
         run: |
-          echo "Getting previous production deployment version..."
-          PREV_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}' || echo "none")
-          echo "previous_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-          echo "Previous version: $PREV_VERSION"
+          echo "Getting current production deployment version (will be 'previous' after new deployment)..."
+          # Use 'versions list' to get all versions sorted by creation time (newest first)
+          # Extract the FIRST version ID (currently deployed version)
+          CURRENT_VERSION=$(npx wrangler versions list --env production 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "No existing deployment found (first deployment)"
+            echo "previous_version=none" >> $GITHUB_OUTPUT
+            echo "Previous version: none"
+          else
+            echo "Current version (newest): $CURRENT_VERSION"
+            echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "This will be the 'previous' version after new deployment"
+            echo "Previous version (for rollback): $CURRENT_VERSION"
+          fi
 
       - name: Deploy to Cloudflare Production
         id: deploy
@@ -349,21 +546,24 @@ jobs:
         id: health_check
         run: |
           WORKER_NAME="${{ matrix.worker }}"
-          # Map worker names to their production URLs
+          # Map worker folder names to their actual production worker names
           case $WORKER_NAME in
-            "auth-worker")
+            auth-worker)
+              # Only auth-worker has "ecommerce-" prefix in production
               HEALTH_URL="https://ecommerce-auth.guhan2210.workers.dev/health"
               ;;
             *)
+              # All other workers: Keep full folder name as-is
+              # e.g., cart-worker → cart-worker.guhan2210.workers.dev
               HEALTH_URL="https://${WORKER_NAME}.guhan2210.workers.dev/health"
               ;;
           esac
-          
+
           echo "🏥 Running health check on $HEALTH_URL"
-          
+
           MAX_RETRIES=5
           RETRY_COUNT=0
-          
+
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
             echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
@@ -380,19 +580,167 @@ jobs:
               sleep 10
             fi
           done
-          
+
           echo "❌ Health check failed after $MAX_RETRIES attempts"
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
 
+      - name: Get PR Information
+        id: pr_info
+        if: success()
+        run: |
+          # Try to get PR number and title from the merge commit
+          PR_NUMBER=$(git log -1 --pretty=%B | grep -oP '#\K[0-9]+' | head -1 || echo "N/A")
+          PR_TITLE=$(git log -1 --pretty=%s || echo "Direct push to main")
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an' || echo "${{ github.actor }}")
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack - Production Deployment Success
+        if: success() && steps.health_check.outputs.status == 'success'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Production Deployment Successful - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Production Deployment Successful - PR Merged"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🔴 Production"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`main`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health Check:*\n✅ Passed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*PR Number:*\n#${{ steps.pr_info.outputs.pr_number }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Merged by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Commit:*\n```${{ steps.pr_info.outputs.pr_title }}```"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.head_commit.url }}|View Commit>"
+                }
+              }
+            ]
+          }'
+
       - name: Rollback on Health Check Failure
-        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
+        if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != ''
         working-directory: ${{ matrix.worker }}
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler rollback --env production --version-id ${{ steps.prev_version.outputs.previous_version }}
-          echo "✅ Rollback completed!"
+
+          # Verify version ID is valid (36 characters UUID format)
+          VERSION="${{ steps.prev_version.outputs.previous_version }}"
+          if [ ${#VERSION} -eq 36 ]; then
+            echo "✅ Valid version ID, proceeding with rollback..."
+            npx wrangler versions deploy ${VERSION}@100% --env production --yes
+            echo "✅ Rollback completed!"
+          else
+            echo "❌ Invalid version ID format: ${VERSION}"
+            echo "⚠️  Cannot rollback - no valid previous version available"
+            exit 1
+          fi
+
+      - name: Notify Slack - Production Deployment Failed & Rolled Back
+        if: failure() && steps.health_check.outcome == 'failure'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🚨 Production Deployment Failed - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚨 Production Deployment Failed - Rollback Executed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🔴 Production"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`main`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n❌ Health check failed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Action Taken:* ${{ (steps.prev_version.outputs.previous_version != 'none' && steps.prev_version.outputs.previous_version != '') && 'Automatically rolled back to previous version' || '⚠️ No previous version - Cannot rollback first deployment' }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "⚠️ *URGENT:* Production deployment failed and was rolled back. Immediate investigation required!"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.head_commit.url }}|View Commit>"
+                }
+              }
+            ]
+          }'
 
       - name: Create deployment summary
         if: always()
@@ -402,7 +750,7 @@ jobs:
           echo "**Worker:** ${{ matrix.worker }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ steps.health_check.outputs.status }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ "${{ steps.health_check.outputs.status }}" = "failed" ]; then
             echo "**Action:** Automatically rolled back to previous version" >> $GITHUB_STEP_SUMMARY
           fi
@@ -448,8 +796,122 @@ jobs:
         run: |
           echo "🔄 Rolling back ${{ github.event.inputs.worker }} to deployment version:"
           echo "📦 Deployment ID: ${{ github.event.inputs.deployment_id }}"
-          npx wrangler rollback --env ${{ steps.env.outputs.environment }} --version-id ${{ github.event.inputs.deployment_id }}
+          if [ -n "${{ github.event.inputs.deployment_id }}" ]; then
+            echo "Deploying specific version: ${{ github.event.inputs.deployment_id }}"
+            npx wrangler versions deploy ${{ github.event.inputs.deployment_id }}@100% --env ${{ steps.env.outputs.environment }} --yes
+          else
+            echo "No version ID provided, getting most recent version..."
+            # Use 'versions list' to get versions sorted by creation time (newest first)
+            # Extract the FIRST version ID (most recently created/deployed version)
+            LATEST_VERSION=$(npx wrangler versions list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+            if [ -n "$LATEST_VERSION" ]; then
+              echo "Rolling back to most recent version: $LATEST_VERSION"
+              npx wrangler versions deploy ${LATEST_VERSION}@100% --env ${{ steps.env.outputs.environment }} --yes
+            else
+              echo "❌ No version found to rollback to"
+              exit 1
+            fi
+          fi
           echo "✅ Rollback completed successfully!"
+
+      - name: Notify Slack - Manual Rollback Success
+        if: success()
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Manual Rollback Successful - ${{ github.event.inputs.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Manual Rollback Successful"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ github.event.inputs.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n${{ steps.env.outputs.environment == 'production' && '🔴 Production' || '🟡 Preview' }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Rolled back to:*\n`${{ github.event.inputs.deployment_id }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Initiated by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                }
+              }
+            ]
+          }'
+
+      - name: Notify Slack - Manual Rollback Failed
+        if: failure()
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "❌ Manual Rollback Failed - ${{ github.event.inputs.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "❌ Manual Rollback Failed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ github.event.inputs.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n${{ steps.env.outputs.environment == 'production' && '🔴 Production' || '🟡 Preview' }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Target Version:*\n`${{ github.event.inputs.deployment_id }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Initiated by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "⚠️ *URGENT:* Manual rollback failed. Immediate investigation required!"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                }
+              }
+            ]
+          }'
 
       - name: Create rollback summary
         run: |
@@ -459,4 +921,3 @@ jobs:
           echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Rolled back to:** ${{ github.event.inputs.deployment_id }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-

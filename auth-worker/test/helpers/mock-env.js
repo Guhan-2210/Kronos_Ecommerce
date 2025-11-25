@@ -58,6 +58,18 @@ export function createMockDB() {
             return { success: true };
           }
           if (this._sql.includes('UPDATE sessions') && this._sql.includes('revoked_at')) {
+            // Handle revokeAllSessions (user_id = ?)
+            if (this._sql.includes('user_id = ?')) {
+              const [userId] = this._bindings;
+              for (const [key, value] of store.entries()) {
+                if (key.startsWith('session:') && value.user_id === userId && !value.revoked_at) {
+                  value.revoked_at = new Date().toISOString();
+                  store.set(key, value);
+                }
+              }
+              return { success: true };
+            }
+            // Handle single session revoke (WHERE id = ?)
             const [id] = this._bindings;
             const session = store.get(`session:${id}`);
             if (session) {
@@ -71,6 +83,15 @@ export function createMockDB() {
             store.set(`user:${id}`, { id, user_data: userData });
             return { success: true };
           }
+          if (this._sql.includes('UPDATE users')) {
+            const [userData, id] = this._bindings;
+            const user = store.get(`user:${id}`);
+            if (user) {
+              user.user_data = userData;
+              store.set(`user:${id}`, user);
+            }
+            return { success: true };
+          }
           return { success: true };
         },
         async first() {
@@ -79,21 +100,29 @@ export function createMockDB() {
             return store.get(`session:${id}`) || null;
           }
           if (this._sql.includes('SELECT') && this._sql.includes('users')) {
-            const [emailHash] = this._bindings;
-            for (const [key, value] of store.entries()) {
-              if (key.startsWith('user:')) {
-                // user_data is stored as JSON string in DB
-                const userData =
-                  typeof value.user_data === 'string'
-                    ? JSON.parse(value.user_data)
-                    : value.user_data;
-                if (userData.email_hash === emailHash) {
-                  // Return the value with user_data as stored (string)
-                  return { id: value.id, user_data: value.user_data };
+            // Check if querying by email_hash or by id
+            if (this._sql.includes('json_extract') || this._sql.includes('email_hash')) {
+              const [emailHash] = this._bindings;
+              for (const [key, value] of store.entries()) {
+                if (key.startsWith('user:')) {
+                  // user_data is stored as JSON string in DB
+                  const userData =
+                    typeof value.user_data === 'string'
+                      ? JSON.parse(value.user_data)
+                      : value.user_data;
+                  if (userData.email_hash === emailHash) {
+                    // Return the value with user_data as stored (string)
+                    return { id: value.id, user_data: value.user_data };
+                  }
                 }
               }
+              return null;
+            } else {
+              // Query by id
+              const [id] = this._bindings;
+              const user = store.get(`user:${id}`);
+              return user || null;
             }
-            return null;
           }
           return null;
         },

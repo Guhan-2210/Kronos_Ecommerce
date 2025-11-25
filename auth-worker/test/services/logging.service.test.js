@@ -17,21 +17,22 @@ describe('LoggingService', () => {
     it('should log a message with level', () => {
       log('INFO', 'Test message');
 
-      expect(consoleLogStub).to.have.been.calledOnce;
+      expect(consoleLogStub.callCount).to.equal(1);
       const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('INFO');
       expect(loggedData.msg).to.equal('Test message');
     });
 
     it('should include timestamp', () => {
-      const before = new Date().toISOString();
+      const before = Date.now();
       log('DEBUG', 'Test');
-      const after = new Date().toISOString();
+      const after = Date.now();
 
       const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.ts).to.be.a('string');
-      expect(loggedData.ts).to.be.at.least(before.substring(0, 19));
-      expect(loggedData.ts).to.be.at.most(after);
+      const timestamp = new Date(loggedData.ts).getTime();
+      expect(timestamp).to.be.at.least(before);
+      expect(timestamp).to.be.at.most(after);
     });
 
     it('should include additional context', () => {
@@ -46,7 +47,7 @@ describe('LoggingService', () => {
     it('should work without context', () => {
       log('ERROR', 'An error occurred');
 
-      expect(consoleLogStub).to.have.been.calledOnce;
+      expect(consoleLogStub.callCount).to.equal(1);
       const loggedData = JSON.parse(consoleLogStub.firstCall.args[0]);
       expect(loggedData.level).to.equal('ERROR');
       expect(loggedData.msg).to.equal('An error occurred');

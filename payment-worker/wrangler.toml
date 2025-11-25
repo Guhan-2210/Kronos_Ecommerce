@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# D1 Database binding (default/top-level)
+[[d1_databases]]
+binding = "DB"
+database_name = "payment_db"
+database_id = "db482507-8290-4962-bd85-21a67ad29c6c"
+
 # ============================================
 # PREVIEW ENVIRONMENT (for PR testing)
 # ============================================
@@ -25,7 +31,7 @@ PAYPAL_MODE = "sandbox"
 PAYPAL_CLIENT_ID = "Ae6nlZ4z70K9tWXwIYFBUHY0gJemVD0KtMfWRQOfPyAyMDJ7nsv10FIMOqy8DECgmraIbxMugjq26Fxl"
 PAYPAL_CLIENT_SECRET = "EDBzZ9EYlyDfKWd9ROUkytXBdSKzRN7PNDbVLee4LK8sumIpYdwhIpiXwnDpWwdhFcS-Wm5uck89NyHm"
 PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
-FRONTEND_URL = "https://preview.kronos-311.pages.dev"
+FRONTEND_URL = "https://ecommerce-frontend.guhan2210.workers.dev"
 ENCRYPTION_KEY_B64 = "zva7VdOdrJdIfN3CzbxEryq/zFBXHVSHPsSwIkk4+6Q="
 HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
 
@@ -51,7 +57,7 @@ PAYPAL_MODE = "sandbox"
 PAYPAL_CLIENT_ID = "Ae6nlZ4z70K9tWXwIYFBUHY0gJemVD0KtMfWRQOfPyAyMDJ7nsv10FIMOqy8DECgmraIbxMugjq26Fxl"
 PAYPAL_CLIENT_SECRET = "EDBzZ9EYlyDfKWd9ROUkytXBdSKzRN7PNDbVLee4LK8sumIpYdwhIpiXwnDpWwdhFcS-Wm5uck89NyHm"
 PAYPAL_API_BASE = "https://api-m.sandbox.paypal.com"
-FRONTEND_URL = "https://main.kronos-311.pages.dev"
+FRONTEND_URL = "https://ecommerce-frontend.guhan2210.workers.dev"
 ENCRYPTION_KEY_B64 = "zva7VdOdrJdIfN3CzbxEryq/zFBXHVSHPsSwIkk4+6Q="
 HONEYCOMB_API_KEY = "hcaik_01karxr91gw57nz6qf7wjq6dasxfnpqsm8mgjdxg2xesvgt6c8etmwx9gg"
 

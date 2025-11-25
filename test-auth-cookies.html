@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Auth Cookie Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    .success { color: #4ec9b0; }
+    .error { color: #f48771; }
+    .warning { color: #dcdcaa; }
+    button { padding: 10px 20px; margin: 5px; font-size: 14px; cursor: pointer; }
+    pre { background: #2d2d2d; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    .log { margin: 10px 0; padding: 10px; background: #252526; border-left: 3px solid #007acc; }
+  </style>
+</head>
+<body>
+  <h1>🔐 Auth Worker Cookie Diagnostics</h1>
+  
+  <div>
+    <button onclick="testLogin()">1. Test Login (Set Cookies)</button>
+    <button onclick="testRefresh()">2. Test Refresh (Read Cookies)</button>
+    <button onclick="checkCookies()">3. Check Browser Cookies</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+  </div>
+  
+  <div id="logs"></div>
+
+  <script>
+    const AUTH_API = 'https://ecommerce-auth.guhan2210.workers.dev';
+    const logsDiv = document.getElementById('logs');
+
+    function addLog(message, type = 'info') {
+      const log = document.createElement('div');
+      log.className = `log ${type}`;
+      log.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> ${message}`;
+      logsDiv.insertBefore(log, logsDiv.firstChild);
+    }
+
+    function clearLogs() {
+      logsDiv.innerHTML = '';
+    }
+
+    async function testLogin() {
+      addLog('🔄 Testing login with test credentials...', 'warning');
+      
+      try {
+        const response = await fetch(`${AUTH_API}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: 'test@example.com',
+            password: 'password123'
+          })
+        });
+
+        const data = await response.json();
+        
+        // Check Set-Cookie headers (won't be visible due to HttpOnly)
+        const setCookieHeaders = response.headers.get('set-cookie');
+        
+        addLog(`<pre>Login Response Status: ${response.status}</pre>`, response.ok ? 'success' : 'error');
+        addLog(`<pre>Response Data: ${JSON.stringify(data, null, 2)}</pre>`);
+        
+        if (response.ok) {
+          addLog('✅ Login successful! Cookies should be set (check DevTools → Application → Cookies)', 'success');
+          addLog('⚠️ Note: Set-Cookie headers are not visible to JavaScript. Check browser DevTools.', 'warning');
+        } else {
+          addLog(`❌ Login failed: ${data.error}`, 'error');
+        }
+      } catch (error) {
+        addLog(`❌ Error: ${error.message}`, 'error');
+      }
+    }
+
+    async function testRefresh() {
+      addLog('🔄 Testing refresh endpoint...', 'warning');
+      
+      try {
+        const response = await fetch(`${AUTH_API}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include'
+        });
+
+        const data = await response.json();
+        
+        addLog(`<pre>Refresh Response Status: ${response.status}</pre>`, response.ok ? 'success' : 'error');
+        addLog(`<pre>Response Data: ${JSON.stringify(data, null, 2)}</pre>`);
+        
+        if (response.ok) {
+          addLog('✅ Refresh successful! Cookies were sent and accepted.', 'success');
+        } else {
+          if (data.error === 'MissingRefresh') {
+            addLog('❌ MissingRefresh error: Browser is NOT sending cookies!', 'error');
+            addLog('This means either:', 'warning');
+            addLog('  1. Cookies were never set (check after login)', 'warning');
+            addLog('  2. Browser is blocking third-party cookies', 'warning');
+            addLog('  3. Cookie attributes are incompatible with this browser', 'warning');
+          } else {
+            addLog(`❌ Refresh failed: ${data.error}`, 'error');
+          }
+        }
+      } catch (error) {
+        addLog(`❌ Error: ${error.message}`, 'error');
+      }
+    }
+
+    function checkCookies() {
+      addLog('🍪 Checking accessible cookies...', 'warning');
+      
+      const cookies = document.cookie;
+      
+      if (cookies) {
+        addLog(`<pre>Non-HttpOnly Cookies:\n${cookies}</pre>`, 'success');
+      } else {
+        addLog('No non-HttpOnly cookies found', 'warning');
+      }
+      
+      addLog('⚠️ HttpOnly cookies (refresh_token, session_id) won\'t show here.', 'warning');
+      addLog('To check HttpOnly cookies:', 'info');
+      addLog('1. Open DevTools (F12)', 'info');
+      addLog('2. Go to Application tab → Cookies', 'info');
+      addLog('3. Look for domain: ecommerce-auth.guhan2210.workers.dev', 'info');
+      addLog('4. Check if refresh_token and session_id exist', 'info');
+      
+      // Check what origin we're on
+      addLog(`<pre>Current origin: ${window.location.origin}\nAuth API: ${AUTH_API}</pre>`, 'info');
+      addLog(`Cross-origin request: ${window.location.origin !== new URL(AUTH_API).origin ? 'YES (third-party cookies)' : 'NO (same-origin)'}`, 'info');
+    }
+
+    // Auto-check on load
+    window.addEventListener('load', () => {
+      addLog('🚀 Cookie diagnostic tool loaded', 'success');
+      checkCookies();
+    });
+  </script>
+</body>
+</html>
+

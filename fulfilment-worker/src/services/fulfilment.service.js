@@ -13,6 +13,7 @@ export const FulfilmentService = {
    * Check if product has sufficient stock across ANY warehouse
    * Used during add-to-cart and cart operations before shipping address is known
    * Returns total available stock without warehouse assignment
+   * NOW CONSIDERS ACTIVE RESERVATIONS via Durable Objects
    */
   async checkGeneralStockAvailability(env, productId, quantity = 1) {
     const allStock = await InventoryModel.checkStock(env.DB, productId);
@@ -25,16 +26,59 @@ export const FulfilmentService = {
       };
     }
 
-    // Calculate total available stock across all warehouses
-    const totalAvailable = allStock.reduce((sum, stock) => {
-      return sum + stock.quantity;
-    }, 0);
+    // Check if DO binding is available for reservation-aware stock checking
+    const hasDOBinding = env.INVENTORY_RESERVATIONS !== undefined;
+
+    let totalAvailable = 0;
+
+    if (hasDOBinding) {
+      // NEW: Query each warehouse's DO to get REAL available stock (minus reservations)
+      console.log(
+        `[General Stock Check] Checking ${allStock.length} warehouses with DO reservation awareness`
+      );
+
+      for (const stock of allStock) {
+        try {
+          const doStock = await InventoryReservationDOService.getAvailableStock(
+            env,
+            productId,
+            stock.warehouse_id
+          );
+
+          if (doStock) {
+            // Use available_stock which already subtracts active reservations
+            totalAvailable += doStock.available_stock;
+            console.log(
+              `[General Stock Check] Warehouse ${stock.warehouse_id}: Physical=${doStock.physical_stock}, Available=${doStock.available_stock}, Reserved=${doStock.total_reserved}`
+            );
+          } else {
+            // Fallback to DB quantity if DO fails
+            totalAvailable += stock.quantity;
+            console.log(
+              `[General Stock Check] Warehouse ${stock.warehouse_id}: Using DB quantity=${stock.quantity} (DO unavailable)`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[General Stock Check] Error checking DO for warehouse ${stock.warehouse_id}:`,
+            error
+          );
+          // Fallback to DB quantity
+          totalAvailable += stock.quantity;
+        }
+      }
+    } else {
+      // Fallback: Calculate total from database (old behavior, no reservation consideration)
+      console.log('[General Stock Check] DO binding not available, using DB quantities only');
+      totalAvailable = allStock.reduce((sum, stock) => sum + stock.quantity, 0);
+    }
 
     if (totalAvailable >= quantity) {
       return {
         available: true,
         total_quantity: totalAvailable,
         warehouse_count: allStock.length,
+        considers_reservations: hasDOBinding,
         message: `Available across ${allStock.length} warehouse${allStock.length > 1 ? 's' : ''}`,
       };
     }
@@ -44,6 +88,7 @@ export const FulfilmentService = {
       reason: 'insufficient_stock',
       total_quantity: totalAvailable,
       requested_quantity: quantity,
+      considers_reservations: hasDOBinding,
       message: `Insufficient stock. Available: ${totalAvailable}, Requested: ${quantity}`,
     };
   },
@@ -51,6 +96,7 @@ export const FulfilmentService = {
   /**
    * Check stock availability for a product from nearest warehouse
    * Returns warehouse with stock or null if out of stock everywhere
+   * NOW CONSIDERS ACTIVE RESERVATIONS via Durable Objects
    */
   async checkStockAvailability(env, productId, zipcode, quantity = 1) {
     // Get customer coordinates from zipcode
@@ -63,11 +109,45 @@ export const FulfilmentService = {
       customerCoords.lon
     );
 
+    const hasDOBinding = env.INVENTORY_RESERVATIONS !== undefined;
+
     // Check stock in each warehouse starting from nearest
     for (const warehouse of warehouses) {
       const stock = await InventoryModel.getStockAtWarehouse(env.DB, productId, warehouse.id);
 
-      if (stock && stock.quantity >= quantity) {
+      if (!stock) {
+        continue; // No stock record at this warehouse
+      }
+
+      let availableQuantity = stock.quantity;
+
+      // NEW: Check DO for actual available quantity (minus reservations)
+      if (hasDOBinding) {
+        try {
+          const doStock = await InventoryReservationDOService.getAvailableStock(
+            env,
+            productId,
+            warehouse.id
+          );
+
+          if (doStock) {
+            availableQuantity = doStock.available_stock;
+            console.log(
+              `[Stock Check] Warehouse ${warehouse.id} (${warehouse.name}): Physical=${doStock.physical_stock}, Available=${doStock.available_stock}, Reserved=${doStock.total_reserved}`
+            );
+          } else {
+            console.log(
+              `[Stock Check] Warehouse ${warehouse.id}: Using DB quantity=${stock.quantity} (DO check returned null)`
+            );
+          }
+        } catch (error) {
+          console.error(`[Stock Check] Error checking DO for warehouse ${warehouse.id}:`, error);
+          // Fall back to DB quantity
+        }
+      }
+
+      // Check if this warehouse has enough available stock
+      if (availableQuantity >= quantity) {
         return {
           available: true,
           warehouse: {
@@ -75,9 +155,15 @@ export const FulfilmentService = {
             name: warehouse.name,
             distance: warehouse.distance,
           },
-          quantity: stock.quantity,
+          quantity: availableQuantity,
+          physical_quantity: stock.quantity,
+          considers_reservations: hasDOBinding,
           estimatedDays: this.calculateEstimatedDays(warehouse.distance),
         };
+      } else {
+        console.log(
+          `[Stock Check] Warehouse ${warehouse.id} has insufficient stock: Available=${availableQuantity}, Requested=${quantity}`
+        );
       }
     }
 
@@ -87,6 +173,7 @@ export const FulfilmentService = {
     return {
       available: false,
       reason: allStock.length > 0 ? 'out_of_stock' : 'product_not_found',
+      considers_reservations: hasDOBinding,
       message:
         allStock.length > 0
           ? 'Product is currently out of stock at all warehouses'
@@ -121,26 +208,93 @@ export const FulfilmentService = {
   },
 
   /**
-   * Get delivery options for a zipcode with simplified flat-rate pricing
+   * Get delivery options for a zipcode with warehouse-aware delivery modes
+   * EXPRESS is only available when ALL items come from Chennai warehouse
+   * Delivery days and pricing are calculated dynamically based on distance
    */
   async getDeliveryOptions(env, zipcode, items = [], distance = null) {
     const deliveryModes = await DeliveryModel.getDeliveryModesForZipcode(env.DB, zipcode);
+    const customerCoords = getCoordinatesFromZipcode(zipcode);
 
-    return deliveryModes.map(mode => {
-      const conditions = mode.conditions;
-      const cost = conditions.base_cost || 0;
+    // Check if all items are from Chennai warehouse
+    const CHENNAI_WAREHOUSE_ID = 'wh-chennai-001';
+    const allItemsFromChennai =
+      items.length > 0 && items.every(item => item.warehouse_id === CHENNAI_WAREHOUSE_ID);
 
-      return {
-        mode: mode.mode_name,
-        estimatedDays: {
-          min: conditions.min_days,
-          max: conditions.max_days,
-        },
-        cost,
-        cutoffTime: conditions.cutoff_time,
-        description: this.getDeliveryDescription(mode.mode_name, conditions),
-      };
-    });
+    console.log(
+      `[Delivery Options] Items from Chennai: ${allItemsFromChennai}, Total items: ${items.length}`
+    );
+
+    // Get the primary warehouse for distance calculation
+    // If all items from Chennai, use Chennai warehouse
+    // Otherwise, use the warehouse of the first item (or closest warehouse)
+    const primaryWarehouseId =
+      items.length > 0 && items[0].warehouse_id ? items[0].warehouse_id : CHENNAI_WAREHOUSE_ID;
+
+    // Calculate distance from warehouse to customer
+    const warehouse = await WarehouseModel.getById(env.DB, primaryWarehouseId);
+    const distanceKm = warehouse
+      ? calculateDistance(
+          warehouse.latitude,
+          warehouse.longitude,
+          customerCoords.lat,
+          customerCoords.lon
+        )
+      : 50; // Default fallback distance
+
+    console.log(
+      `[Delivery Options] Distance from ${primaryWarehouseId} to ${zipcode}: ${distanceKm.toFixed(2)} km`
+    );
+
+    // Calculate dynamic delivery days based on distance
+    const dynamicDeliveryDays = this.calculateEstimatedDays(distanceKm);
+
+    // Filter and transform delivery modes
+    const availableModes = deliveryModes
+      .filter(mode => {
+        // EXPRESS only available when all items are from Chennai
+        if (mode.mode_name === 'express' && !allItemsFromChennai) {
+          console.log('[Delivery Options] EXPRESS mode filtered out - not all items from Chennai');
+          return false;
+        }
+        return true;
+      })
+      .map(mode => {
+        let cost = 0;
+        let estimatedDays = dynamicDeliveryDays;
+
+        if (mode.mode_name === 'express') {
+          // Distance-based pricing for EXPRESS
+          // Base: ₹200 + ₹3 per km
+          cost = 200 + Math.ceil(distanceKm * 3);
+
+          // EXPRESS is faster: reduce days by 50% (minimum 1 day)
+          estimatedDays = {
+            min: Math.max(1, Math.floor(dynamicDeliveryDays.min / 2)),
+            max: Math.max(1, Math.ceil(dynamicDeliveryDays.max / 2)),
+          };
+        } else {
+          // STANDARD is FREE
+          cost = 0;
+          estimatedDays = dynamicDeliveryDays;
+        }
+
+        return {
+          mode: mode.mode_name,
+          estimatedDays,
+          cost,
+          cutoffTime: mode.conditions.cutoff_time,
+          description: this.getDeliveryDescription(mode.mode_name, estimatedDays, cost, distanceKm),
+          distance: Math.round(distanceKm * 10) / 10, // Round to 1 decimal
+        };
+      });
+
+    console.log(
+      `[Delivery Options] Available modes for ${zipcode}:`,
+      availableModes.map(m => m.mode)
+    );
+
+    return availableModes;
   },
 
   /**
@@ -290,13 +444,14 @@ export const FulfilmentService = {
   /**
    * Get human-readable delivery description
    */
-  getDeliveryDescription(modeName, conditions) {
-    const { min_days, max_days } = conditions;
+  getDeliveryDescription(modeName, estimatedDays, cost, distance) {
+    const { min_days, max_days } = estimatedDays;
+    const distanceText = distance ? ` (~${Math.round(distance)} km)` : '';
 
     if (modeName === 'express') {
-      return `Express delivery in ${min_days}-${max_days} business days`;
+      return `Express delivery in ${min_days}-${max_days} business days${distanceText} - ₹${cost}`;
     } else {
-      return `Standard delivery in ${min_days}-${max_days} business days - FREE`;
+      return `Standard delivery in ${min_days}-${max_days} business days${distanceText} - FREE`;
     }
   },
 

@@ -107,13 +107,13 @@ class FulfilmentAPI {
   /**
    * Reserve stock for cart (requires authentication)
    */
-  async reserveStock(items, zipcode, token) {
+  async reserveStock(items, zipcode) {
     const response = await fetch(`${this.baseURL}/api/stock/reserve`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
+      credentials: 'include', // Send cookies (access_token)
       body: JSON.stringify({
         items,
         zipcode
@@ -132,13 +132,13 @@ class FulfilmentAPI {
   /**
    * Release stock reservations (requires authentication)
    */
-  async releaseStock(reservations, token) {
+  async releaseStock(reservations) {
     const response = await fetch(`${this.baseURL}/api/stock/release`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Content-Type': 'application/json'
       },
+      credentials: 'include', // Send cookies (access_token)
       body: JSON.stringify({
         reservations
       })

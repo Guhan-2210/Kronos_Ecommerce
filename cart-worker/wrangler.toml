@@ -3,6 +3,12 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# D1 Database binding (default/top-level)
+[[d1_databases]]
+binding = "DB"
+database_name = "cart_db"
+database_id = "c9035cde-c4f0-4b89-b1d3-961708b6a624"
+
 # ============================================
 # PREVIEW ENVIRONMENT (for PR testing)
 # ============================================

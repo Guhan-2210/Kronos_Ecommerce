@@ -22,18 +22,53 @@ async function verifyAccessJWT(env, token) {
 }
 
 /**
+ * Parse cookies from Cookie header
+ */
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (!cookieHeader) return cookies;
+
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, ...rest] = cookie.split('=');
+    const value = rest.join('=');
+    if (name && value) {
+      cookies[name.trim()] = decodeURIComponent(value.trim());
+    }
+  });
+
+  return cookies;
+}
+
+/**
  * Authentication middleware
  * Verifies JWT token and attaches user info to request
+ * Supports both cookie-based auth (preferred) and Authorization header (fallback)
  */
 export const requireAuth = () => async (request, env) => {
-  const hdr = request.headers.get('authorization');
+  let token = null;
 
-  if (!hdr || !hdr.startsWith('Bearer ')) {
+  // First, try to get token from cookie (preferred for browser clients)
+  const cookieHeader = request.headers.get('Cookie');
+  if (cookieHeader) {
+    const cookies = parseCookies(cookieHeader);
+    token = cookies.access_token;
+  }
+
+  // Fallback to Authorization header (for API clients)
+  if (!token) {
+    const hdr = request.headers.get('authorization');
+    if (hdr && hdr.startsWith('Bearer ')) {
+      token = hdr.slice(7);
+    }
+  }
+
+  // No token found in either location
+  if (!token) {
     return new Response(
       JSON.stringify({
         success: false,
-        error: 'Missing or invalid authorization header',
-        message: 'Please provide a valid Bearer token',
+        error: 'Missing or invalid authorization',
+        message: 'Please provide authentication',
       }),
       {
         status: 401,
@@ -41,8 +76,6 @@ export const requireAuth = () => async (request, env) => {
       }
     );
   }
-
-  const token = hdr.slice(7);
 
   try {
     const payload = await verifyAccessJWT(env, token);
@@ -74,17 +107,31 @@ export const requireAuth = () => async (request, env) => {
 /**
  * Optional authentication middleware
  * Tries to authenticate but doesn't fail if no token present
+ * Supports both cookie-based auth and Authorization header
  */
 export const optionalAuth = () => async (request, env) => {
-  const hdr = request.headers.get('authorization');
+  let token = null;
 
-  if (!hdr || !hdr.startsWith('Bearer ')) {
-    // No token provided - that's okay for optional auth
+  // Try to get token from cookie first
+  const cookieHeader = request.headers.get('Cookie');
+  if (cookieHeader) {
+    const cookies = parseCookies(cookieHeader);
+    token = cookies.access_token;
+  }
+
+  // Fallback to Authorization header
+  if (!token) {
+    const hdr = request.headers.get('authorization');
+    if (hdr && hdr.startsWith('Bearer ')) {
+      token = hdr.slice(7);
+    }
+  }
+
+  // No token provided - that's okay for optional auth
+  if (!token) {
     request.auth = null;
     return undefined;
   }
-
-  const token = hdr.slice(7);
 
   try {
     const payload = await verifyAccessJWT(env, token);

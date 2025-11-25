@@ -34,6 +34,7 @@ export const deliveryOptionsSchema = Joi.object({
       Joi.object({
         product_id: Joi.string(),
         quantity: Joi.number().integer().min(1).default(1),
+        warehouse_id: Joi.string().optional(), // Required for EXPRESS filtering
       })
     )
     .default([]),

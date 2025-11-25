@@ -295,9 +295,11 @@ export const CartService = {
     console.log('[CART] ✅ All products assigned to optimal warehouses');
 
     // Get delivery options for this zipcode
+    // IMPORTANT: Include warehouse_id for delivery mode filtering (EXPRESS only for Chennai)
     const items = finalCart.product_data.map(p => ({
       product_id: p.product_id,
       quantity: p.quantity,
+      warehouse_id: p.warehouse_id, // Required for delivery mode filtering
     }));
 
     let deliveryOptions;
@@ -367,9 +369,11 @@ export const CartService = {
     const subtotal = cart.product_data.reduce((sum, p) => sum + p.current_price * p.quantity, 0);
 
     // Get delivery options
+    // IMPORTANT: Include warehouse_id for delivery mode filtering (EXPRESS only for Chennai)
     const items = cart.product_data.map(p => ({
       product_id: p.product_id,
       quantity: p.quantity,
+      warehouse_id: p.warehouse_id, // Required for EXPRESS filtering
     }));
 
     let deliveryOptions;
@@ -774,10 +778,12 @@ export const CartService = {
         console.log(`[Order Completion] Cart ${getOrderResult.data.cart_id} soft deleted`);
       }
 
+      // Return full order details instead of just order_id
       return {
         order_id: orderId,
         status: 'confirmed',
         message: 'Order placed successfully',
+        order_data: getOrderResult.data, // ✅ Include full order object
       };
     } catch (error) {
       console.error('[Order Completion] Error:', error);
