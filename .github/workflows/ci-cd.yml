@@ -26,7 +26,7 @@ on:
 
 # Grant permissions for GitHub token
 permissions:
-  contents: read
+  contents: write # Allow auto-fix commits
   pull-requests: write
   issues: write
 
@@ -152,6 +152,37 @@ jobs:
       - name: Install root dependencies for lint/prettier
         run: npm ci
 
+      - name: Auto-fix linting and formatting issues
+        run: |
+          echo "🔧 Auto-fixing ESLint issues..."
+          npx eslint "${{ matrix.worker }}/**/*.js" --fix || echo "⚠️ Some ESLint issues could not be auto-fixed"
+
+          echo "🎨 Auto-fixing Prettier formatting..."
+          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}"
+
+          echo "✅ Auto-fix completed"
+
+      - name: Check for changes after auto-fix
+        id: check_changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes from auto-fix"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Auto-fix made changes"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            git diff --stat
+          fi
+
+      - name: Commit and push auto-fixes
+        if: steps.check_changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add "${{ matrix.worker }}/**/*.js" "${{ matrix.worker }}/**/*.json"
+          git commit -m "ci: auto-fix linting and formatting issues in ${{ matrix.worker }}"
+          git push
+
       - name: Run ESLint on worker
         run: |
           echo "🔍 Running ESLint on ${{ matrix.worker }}..."
@@ -227,7 +258,8 @@ jobs:
         working-directory: ${{ matrix.worker }}
         run: |
           echo "Getting current deployment version (will be 'previous' after new deployment)..."
-          CURRENT_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -v "Version ID" | grep -v "^$" | head -1 | awk '{print $1}')
+          # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
+          CURRENT_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
           if [ -z "$CURRENT_VERSION" ]; then
             echo "No existing deployment found (first deployment)"
@@ -467,7 +499,8 @@ jobs:
         working-directory: ${{ matrix.worker }}
         run: |
           echo "Getting current production deployment version (will be 'previous' after new deployment)..."
-          CURRENT_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -v "Version ID" | grep -v "^$" | head -1 | awk '{print $1}')
+          # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
+          CURRENT_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
           if [ -z "$CURRENT_VERSION" ]; then
             echo "No existing deployment found (first deployment)"
@@ -747,7 +780,8 @@ jobs:
             npx wrangler versions deploy ${{ github.event.inputs.deployment_id }}@100% --env ${{ steps.env.outputs.environment }} --yes
           else
             echo "No version ID provided, getting previous version..."
-            PREV_VERSION=$(npx wrangler deployments list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}')
+            # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
+            PREV_VERSION=$(npx wrangler deployments list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
             if [ -n "$PREV_VERSION" ]; then
               echo "Rolling back to previous version: $PREV_VERSION"
               npx wrangler versions deploy ${PREV_VERSION}@100% --env ${{ steps.env.outputs.environment }} --yes
