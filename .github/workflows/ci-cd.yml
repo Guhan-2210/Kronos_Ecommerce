@@ -51,7 +51,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for accurate diff
+          fetch-depth: 0 # Fetch all history for accurate diff
 
       - name: Detect changed workers
         id: detect
@@ -66,10 +66,10 @@ jobs:
             "payment-worker"
             "price-worker"
           )
-          
+
           # Initialize empty array
           CHANGED_WORKERS=()
-          
+
           # For PRs, compare against target branch
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BASE_REF="${{ github.event.pull_request.base.sha }}"
@@ -85,15 +85,15 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "Comparing $BASE_REF...$HEAD_REF"
-          
+
           # Get changed files
           CHANGED_FILES=$(git diff --name-only $BASE_REF $HEAD_REF || echo "")
-          
+
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          
+
           # Check each worker for changes
           for worker in "${ALL_WORKERS[@]}"; do
             if echo "$CHANGED_FILES" | grep -q "^${worker}/src/"; then
@@ -101,7 +101,7 @@ jobs:
               CHANGED_WORKERS+=("$worker")
             fi
           done
-          
+
           # Convert to JSON array
           if [ ${#CHANGED_WORKERS[@]} -eq 0 ]; then
             echo "workers=[]" >> $GITHUB_OUTPUT
@@ -248,12 +248,12 @@ jobs:
         run: |
           WORKER_NAME="${{ matrix.worker }}"
           HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
-          
+
           echo "🏥 Running health check on $HEALTH_URL"
-          
+
           MAX_RETRIES=5
           RETRY_COUNT=0
-          
+
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
             echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
@@ -270,7 +270,7 @@ jobs:
               sleep 10
             fi
           done
-          
+
           echo "❌ Health check failed after $MAX_RETRIES attempts"
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
@@ -334,7 +334,7 @@ jobs:
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler rollback --env preview --version-id ${{ steps.prev_version.outputs.previous_version }}
+          npx wrangler versions rollback --env preview --message "Rollback due to health check failure"
           echo "✅ Rollback completed!"
 
       - name: Notify Slack - Preview Deployment Failed & Rolled Back
@@ -398,18 +398,18 @@ jobs:
             const worker = '${{ matrix.worker }}';
             const status = '${{ steps.health_check.outputs.status }}';
             const url = `https://${worker}-preview.guhan2210.workers.dev/health`;
-            
+
             let emoji = status === 'success' ? '✅' : '❌';
             let message = status === 'success' ? 'Deployed successfully!' : 'Health check failed - rolled back';
-            
+
             const comment = `### ${emoji} Preview Deployment: \`${worker}\`
-            
+
             **Status:** ${message}
             **Environment:** Preview
             **Health Check:** ${url}
-            
+
             ${status === 'success' ? '🎉 Ready for testing!' : '⚠️ Deployment failed and was rolled back'}`;
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -478,12 +478,12 @@ jobs:
               HEALTH_URL="https://${WORKER_NAME}.guhan2210.workers.dev/health"
               ;;
           esac
-          
+
           echo "🏥 Running health check on $HEALTH_URL"
-          
+
           MAX_RETRIES=5
           RETRY_COUNT=0
-          
+
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
             echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Status $HEALTH_STATUS"
@@ -500,7 +500,7 @@ jobs:
               sleep 10
             fi
           done
-          
+
           echo "❌ Health check failed after $MAX_RETRIES attempts"
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
@@ -589,7 +589,7 @@ jobs:
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler rollback --env production --version-id ${{ steps.prev_version.outputs.previous_version }}
+          npx wrangler versions rollback --env production --message "Rollback due to health check failure"
           echo "✅ Rollback completed!"
 
       - name: Notify Slack - Production Deployment Failed & Rolled Back
@@ -660,7 +660,7 @@ jobs:
           echo "**Worker:** ${{ matrix.worker }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ steps.health_check.outputs.status }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ "${{ steps.health_check.outputs.status }}" = "failed" ]; then
             echo "**Action:** Automatically rolled back to previous version" >> $GITHUB_STEP_SUMMARY
           fi
@@ -706,7 +706,13 @@ jobs:
         run: |
           echo "🔄 Rolling back ${{ github.event.inputs.worker }} to deployment version:"
           echo "📦 Deployment ID: ${{ github.event.inputs.deployment_id }}"
-          npx wrangler rollback --env ${{ steps.env.outputs.environment }} --version-id ${{ github.event.inputs.deployment_id }}
+          if [ -n "${{ github.event.inputs.deployment_id }}" ]; then
+            echo "Deploying specific version: ${{ github.event.inputs.deployment_id }}"
+            npx wrangler versions deploy ${{ github.event.inputs.deployment_id }} --env ${{ steps.env.outputs.environment }} --yes
+          else
+            echo "No version ID provided, rolling back to previous version"
+            npx wrangler versions rollback --env ${{ steps.env.outputs.environment }} --message "Manual rollback via GitHub Actions"
+          fi
           echo "✅ Rollback completed successfully!"
 
       - name: Notify Slack - Manual Rollback Success
@@ -816,4 +822,3 @@ jobs:
           echo "**Environment:** ${{ steps.env.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Rolled back to:** ${{ github.event.inputs.deployment_id }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-
