@@ -15,29 +15,11 @@ export class InventoryReservationDO {
     this.stock = null; // Current stock from DB
     this.lastSync = null;
 
-    // Parse and store productId and warehouseId from DO ID name
-    // The name was set using idFromName("productId:warehouseId")
-    console.log('[DO Constructor] state.id type:', typeof state.id);
-    console.log('[DO Constructor] state.id.name:', state.id.name);
-    console.log('[DO Constructor] state.id.toString():', state.id.toString());
-
-    this.doName = state.id.name; // This gives us the original name string!
-
-    if (!this.doName) {
-      console.error('[DO Constructor] ERROR: state.id.name is undefined!');
-      console.error('[DO Constructor] Full state.id:', JSON.stringify(state.id));
-      // Fallback: try to use toString and assume it might work
-      this.doName = 'unknown:unknown';
-      this.productId = 'unknown';
-      this.warehouseId = 'unknown';
-    } else {
-      const [productId, warehouseId] = this.doName.split(':');
-      this.productId = productId;
-      this.warehouseId = warehouseId;
-      console.log(
-        `[DO Constructor] Parsed - productId: ${this.productId}, warehouseId: ${this.warehouseId}`
-      );
-    }
+    // IMPORTANT: state.id.name is NULL in new Cloudflare Workers runtime
+    // We must get productId/warehouseId from request bodies instead
+    this.productId = null;
+    this.warehouseId = null;
+    this.doName = null;
 
     // TTL for reservations: 15 minutes (industry standard for payment completion)
     this.RESERVATION_TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -48,10 +30,24 @@ export class InventoryReservationDO {
     // Initialize state from storage
     this.state.blockConcurrencyWhile(async () => {
       // state.storage.get() with array returns a Map, so use .get() to access values
-      const stored = await this.state.storage.get(['reservations', 'stock', 'lastSync']);
+      const stored = await this.state.storage.get([
+        'reservations',
+        'stock',
+        'lastSync',
+        'productId',
+        'warehouseId',
+      ]);
       this.reservations = new Map(stored.get('reservations') || []);
       this.stock = stored.get('stock') || null;
       this.lastSync = stored.get('lastSync') || null;
+
+      // Restore productId/warehouseId if we have them
+      this.productId = stored.get('productId') || null;
+      this.warehouseId = stored.get('warehouseId') || null;
+      if (this.productId && this.warehouseId) {
+        this.doName = `${this.productId}:${this.warehouseId}`;
+        console.log(`[DO Constructor] Restored IDs from storage: ${this.doName}`);
+      }
 
       console.log(`[DO Constructor] Loaded ${this.reservations.size} reservations from storage`);
 
@@ -92,10 +88,21 @@ export class InventoryReservationDO {
   }
 
   /**
+   * Set product and warehouse IDs (called from requests)
+   */
+  setIds(productId, warehouseId) {
+    if (productId && warehouseId) {
+      this.productId = productId;
+      this.warehouseId = warehouseId;
+      this.doName = `${productId}:${warehouseId}`;
+    }
+  }
+
+  /**
    * Get DO ID (productId:warehouseId)
    */
   getDoId() {
-    return this.doName; // Return the original name string
+    return this.doName || 'uninitialized';
   }
 
   /**
@@ -194,6 +201,8 @@ export class InventoryReservationDO {
       reservations: Array.from(this.reservations.entries()),
       stock: this.stock,
       lastSync: this.lastSync,
+      productId: this.productId,
+      warehouseId: this.warehouseId,
     });
   }
 
@@ -204,10 +213,8 @@ export class InventoryReservationDO {
     const { orderId, quantity, userId, productId, warehouseId } = await request.json();
     const now = Date.now();
 
-    // Use the provided productId and warehouseId instead of parsing from DO ID
-    this.productId = productId;
-    this.warehouseId = warehouseId;
-    this.doName = `${productId}:${warehouseId}`;
+    // Set the IDs from the request
+    this.setIds(productId, warehouseId);
 
     console.log(`[DO Reserve] ${this.getDoId()} - Order ${orderId} requesting ${quantity} units`);
     console.log(
@@ -312,10 +319,8 @@ export class InventoryReservationDO {
   async handleConfirm(request) {
     const { orderId, productId, warehouseId } = await request.json();
 
-    // Use the provided productId and warehouseId
-    this.productId = productId;
-    this.warehouseId = warehouseId;
-    this.doName = `${productId}:${warehouseId}`;
+    // Set the IDs from the request
+    this.setIds(productId, warehouseId);
 
     console.log(`[DO Confirm] ${this.getDoId()} - Confirming order ${orderId}`);
     console.log('[DO Confirm] Current reservations in DO:', Array.from(this.reservations.keys()));
@@ -474,12 +479,8 @@ export class InventoryReservationDO {
     const { quantity, productId, warehouseId } = await request.json();
     const now = Date.now();
 
-    // Use the provided productId and warehouseId
-    if (productId && warehouseId) {
-      this.productId = productId;
-      this.warehouseId = warehouseId;
-      this.doName = `${productId}:${warehouseId}`;
-    }
+    // Set the IDs from the request
+    this.setIds(productId, warehouseId);
 
     console.log(`[DO Check] ${this.getDoId()} - Checking ${quantity} units`);
 
@@ -519,10 +520,35 @@ export class InventoryReservationDO {
   }
 
   /**
-   * Get reservation info (for debugging)
+   * Get reservation info (for debugging and stock availability checks)
+   * IMPORTANT: Now syncs from DB to ensure accurate stock data
    */
   async handleInfo(request) {
+    const now = Date.now();
+
+    // Accept productId/warehouseId from request body to ensure correct values
+    try {
+      const body = await request.json();
+      if (body.productId && body.warehouseId) {
+        this.setIds(body.productId, body.warehouseId);
+        console.log(`[DO Info] Set IDs from request: ${this.getDoId()}`);
+      }
+    } catch (e) {
+      // If body parsing fails or no body, use existing IDs (if we have them)
+      console.log('[DO Info] No JSON body provided, using stored IDs:', this.getDoId());
+    }
+
     this.cleanupExpiredReservations();
+
+    // Sync from DB if needed (same logic as handleCheck)
+    if (
+      this.productId &&
+      this.warehouseId &&
+      (!this.stock || !this.lastSync || now - this.lastSync > this.SYNC_INTERVAL_MS)
+    ) {
+      console.log(`[DO Info] Syncing stock from DB for ${this.getDoId()}`);
+      await this.syncStockFromDB();
+    }
 
     const reservationsList = Array.from(this.reservations.entries()).map(([orderId, res]) => ({
       orderId,

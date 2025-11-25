@@ -4,15 +4,33 @@ const ALLOWED_ORIGINS = [
   'https://localhost:5173', // HTTPS localhost for secure cookie support
   'http://localhost:4173',
   'https://localhost:4173',
+  'https://ecommerce-frontend.guhan2210.workers.dev', // Production frontend worker ✅
   'https://main.kronos-311.pages.dev',
+  'https://preview.kronos-311.pages.dev',
+  'https://production.kronos-311.pages.dev',
   'https://kronos-311.pages.dev',
 ];
+
+// Also allow any preview branch URLs (format: https://<hash>.kronos-311.pages.dev)
+function isAllowedOrigin(origin) {
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    return true;
+  }
+  // Allow any preview branch from pages.dev
+  if (origin && origin.match(/^https:\/\/[a-z0-9-]+\.kronos-311\.pages\.dev$/)) {
+    return true;
+  }
+  return false;
+}
 
 function getCorsHeaders(request) {
   const origin = request.headers.get('Origin');
 
-  // Allow the origin if it's in the allowed list, otherwise default to first allowed origin
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[2];
+  // Only allow explicitly approved origins (no fallback for security)
+  // If origin is not in the allowed list, default to the first production URL
+  // This ensures CORS works while maintaining security
+  const allowedOrigin =
+    origin && isAllowedOrigin(origin) ? origin : 'https://main.kronos-311.pages.dev';
 
   return {
     'Access-Control-Allow-Origin': allowedOrigin,

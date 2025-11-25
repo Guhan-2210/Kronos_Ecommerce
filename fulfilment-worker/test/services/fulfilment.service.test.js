@@ -85,27 +85,33 @@ describe('FulfilmentService', () => {
   });
 
   describe('getDeliveryDescription', () => {
-    it('should return express delivery description', () => {
-      const desc = FulfilmentService.getDeliveryDescription('express', {
-        min_days: 2,
-        max_days: 3,
-      });
-      expect(desc).to.equal('Express delivery in 2-3 business days');
+    it('should return express delivery description with cost and distance', () => {
+      const desc = FulfilmentService.getDeliveryDescription(
+        'express',
+        { min_days: 2, max_days: 3 },
+        500,
+        10
+      );
+      expect(desc).to.equal('Express delivery in 2-3 business days (~10 km) - ₹500');
     });
 
     it('should return standard delivery description with FREE', () => {
-      const desc = FulfilmentService.getDeliveryDescription('standard', {
-        min_days: 5,
-        max_days: 7,
-      });
-      expect(desc).to.equal('Standard delivery in 5-7 business days - FREE');
+      const desc = FulfilmentService.getDeliveryDescription(
+        'standard',
+        { min_days: 5, max_days: 7 },
+        0,
+        50
+      );
+      expect(desc).to.equal('Standard delivery in 5-7 business days (~50 km) - FREE');
     });
 
-    it('should handle other delivery modes as standard', () => {
-      const desc = FulfilmentService.getDeliveryDescription('economy', {
-        min_days: 7,
-        max_days: 10,
-      });
+    it('should handle delivery description without distance', () => {
+      const desc = FulfilmentService.getDeliveryDescription(
+        'economy',
+        { min_days: 7, max_days: 10 },
+        0,
+        null
+      );
       expect(desc).to.equal('Standard delivery in 7-10 business days - FREE');
     });
 

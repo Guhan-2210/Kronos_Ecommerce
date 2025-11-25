@@ -159,9 +159,9 @@ describe('OrderModel', () => {
         'USD'
       );
 
-      expect(prepareStub).to.have.been.calledTwice;
-      expect(bindStub).to.have.been.calledTwice;
-      expect(runStub).to.have.been.calledOnce;
+      sinon.assert.calledTwice(prepareStub);
+      sinon.assert.calledTwice(bindStub);
+      sinon.assert.calledOnce(runStub);
       expect(result).to.have.property('id', 'order-123');
       expect(result.order_data).to.deep.equal(orderData);
       expect(result.user_data).to.deep.equal(userData);
@@ -228,7 +228,7 @@ describe('OrderModel', () => {
 
       await OrderModel.getById(mockDb, 'deleted-order');
 
-      expect(prepareStub).to.have.been.calledOnce;
+      sinon.assert.calledOnce(prepareStub);
       const sql = prepareStub.firstCall.args[0];
       expect(sql).to.include('deleted_at IS NULL');
     });
@@ -321,7 +321,7 @@ describe('OrderModel', () => {
 
       const result = await OrderModel.updateStatus(mockDb, 'order-123', 'confirmed');
 
-      expect(runStub).to.have.been.calledOnce;
+      sinon.assert.calledOnce(runStub);
       expect(result.status).to.equal('confirmed');
     });
 
@@ -351,7 +351,7 @@ describe('OrderModel', () => {
 
       const result = await OrderModel.updatePaymentId(mockDb, 'order-123', 'pay-456');
 
-      expect(runStub).to.have.been.calledOnce;
+      sinon.assert.calledOnce(runStub);
       expect(result.payment_id).to.equal('pay-456');
     });
   });
@@ -360,7 +360,7 @@ describe('OrderModel', () => {
     it('should soft delete an order', async () => {
       const result = await OrderModel.softDelete(mockDb, 'order-123');
 
-      expect(runStub).to.have.been.calledOnce;
+      sinon.assert.calledOnce(runStub);
       expect(result).to.be.true;
     });
 
@@ -386,7 +386,7 @@ describe('OrderModel', () => {
 
       const result = await OrderModel.updateOrderData(mockDb, 'order-123', newOrderData);
 
-      expect(runStub).to.have.been.calledOnce;
+      sinon.assert.calledOnce(runStub);
       expect(result.order_data).to.deep.equal(newOrderData);
     });
 

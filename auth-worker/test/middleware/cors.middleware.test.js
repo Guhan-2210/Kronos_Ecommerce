@@ -60,8 +60,10 @@ describe('CORS Middleware', () => {
 
       const response = handleCors(request);
 
-      // Should default to ALLOWED_ORIGINS[2] which is http://localhost:4173
-      expect(response.headers.get('Access-Control-Allow-Origin')).to.equal('http://localhost:4173');
+      // Should default to the main production URL for security
+      expect(response.headers.get('Access-Control-Allow-Origin')).to.equal(
+        'https://main.kronos-311.pages.dev'
+      );
     });
   });
 

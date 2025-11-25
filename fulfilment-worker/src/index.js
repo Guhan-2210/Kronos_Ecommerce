@@ -1,6 +1,5 @@
 import { Router } from 'itty-router';
 import { instrument } from '@microlabs/otel-cf-workers';
-import { trace } from '@opentelemetry/api';
 import { FulfilmentController } from './controllers/fulfilment.controller.js';
 import { HealthController } from './controllers/health.controller.js';
 import { errorResponse } from './utils/helpers.js';
@@ -8,6 +7,12 @@ import { validateBody } from './middleware/validate.middleware.js';
 import { requireAuth } from './middleware/auth.middleware.js';
 import { handleCors, addCorsHeaders } from './middleware/cors.middleware.js';
 import { withLogging } from './middleware/logging.middleware.js';
+import {
+  initializeRequestTrace,
+  recordResponse,
+  recordError,
+  extractTraceContext,
+} from './utils/tracing.js';
 import {
   checkStockSchema,
   batchStockSchema,
@@ -91,44 +96,58 @@ router.all(
 // Handler without instrumentation
 const handler = {
   async fetch(request, env, ctx) {
-    // Get active span for custom attributes and events
-    const span = trace.getActiveSpan();
-    const cfRay = request.headers.get('cf-ray') || 'No cf-ray header';
+    try {
+      // Extract incoming trace context from headers
+      extractTraceContext(request);
 
-    if (span) {
-      // Add custom attributes
-      span.setAttribute('cfray', cfRay);
-      span.setAttribute('worker.name', 'fulfilment-worker');
-      span.setAttribute('http.method', request.method);
-      span.setAttribute('http.url', request.url);
+      // Initialize comprehensive request tracing
+      const { traceId, spanId, cfRay } = initializeRequestTrace(request, env);
 
-      // Add event with request details
-      span.addEvent('request_received', {
-        message: JSON.stringify({
-          request: request.url,
-          method: request.method,
-          traceId: span.spanContext().traceId,
-          cfRay,
-        }),
+      // Wrap router with logging and CORS
+      const response = await withLogging('fulfilment-worker', async (req, environment, context) => {
+        try {
+          const res = await router.fetch(req, environment, context);
+
+          // Record successful response with details
+          recordResponse(res, {
+            traceId,
+            spanId,
+            cfRay,
+          });
+
+          return res;
+        } catch (error) {
+          // Record any errors that occur during routing
+          recordError(error, {
+            stage: 'routing',
+            path: new URL(req.url).pathname,
+          });
+          throw error;
+        }
+      })(request, env, ctx);
+
+      return addCorsHeaders(response, request);
+    } catch (error) {
+      // Catch-all error handler
+      recordError(error, {
+        stage: 'handler',
+        critical: true,
       });
-    }
 
-    // Wrap router with logging and CORS
-    return withLogging('fulfilment-worker', async (req, environment, context) => {
-      const response = await router.fetch(req, environment, context);
-
-      // Add span event for response
-      if (span) {
-        span.addEvent('response_sent', {
-          message: JSON.stringify({
-            status: response.status,
-            statusText: response.statusText,
+      return addCorsHeaders(
+        new Response(
+          JSON.stringify({
+            error: 'Internal Server Error',
+            message: error.message,
           }),
-        });
-      }
-
-      return addCorsHeaders(response, req);
-    })(request, env, ctx);
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        request
+      );
+    }
   },
 };
 

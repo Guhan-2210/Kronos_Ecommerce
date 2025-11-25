@@ -8,26 +8,18 @@ class AuthenticatedAPIClient {
 
   /**
    * Make authenticated request with automatic token refresh
+   * Cookies (access_token, refresh_token, session_id) sent automatically by browser
    */
   async request(url, options = {}) {
-    const token = auth.getToken();
-
-    // Add authorization header if we have a token
-    const headers = new Headers(options.headers || {});
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
-
     const requestOptions = {
       ...options,
-      headers,
-      credentials: 'include' // Include cookies for refresh tokens
+      credentials: 'include' // Send HttpOnly cookies automatically (access_token, refresh_token, session_id)
     };
 
     let response = await fetch(url.startsWith('http') ? url : `${this.baseURL}${url}`, requestOptions);
 
     // Handle 401 by attempting token refresh
-    if (response.status === 401 && token) {
+    if (response.status === 401) {
       console.log('Received 401, attempting token refresh...');
       const originalRequest = new Request(url.startsWith('http') ? url : `${this.baseURL}${url}`, requestOptions);
 

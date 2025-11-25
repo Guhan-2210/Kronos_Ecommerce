@@ -225,5 +225,5 @@ export function withLogging(serviceName, routerFetch) {
  * Helper to get logger from request
  */
 export function getLogger(request) {
-  return request.logger;
+  return request.logger || null;
 }

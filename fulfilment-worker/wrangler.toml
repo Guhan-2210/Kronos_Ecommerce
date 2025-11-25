@@ -13,6 +13,12 @@ script_name = "fulfilment-worker"
 tag = "v1"
 new_sqlite_classes = ["InventoryReservationDO"]
 
+# D1 Database binding (default/top-level)
+[[d1_databases]]
+binding = "DB"
+database_name = "fulfilment_db"
+database_id = "97eb8f38-5ef7-44f7-b27b-23eb3913ef4f"
+
 # ============================================
 # PREVIEW ENVIRONMENT (for PR testing)
 # ============================================

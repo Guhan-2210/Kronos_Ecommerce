@@ -34,6 +34,7 @@ env:
   NODE_VERSION: 20
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
 jobs:
   # ========================================
@@ -148,6 +149,19 @@ jobs:
             package-lock.json
             ${{ matrix.worker }}/package-lock.json
 
+      - name: Install root dependencies for lint/prettier
+        run: npm ci
+
+      - name: Run ESLint on worker
+        run: |
+          echo "🔍 Running ESLint on ${{ matrix.worker }}..."
+          npx eslint "${{ matrix.worker }}/**/*.js" || echo "⚠️ ESLint found issues (non-blocking)"
+
+      - name: Run Prettier Check on worker
+        run: |
+          echo "🎨 Running Prettier check on ${{ matrix.worker }}..."
+          npx prettier --check "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier found formatting issues (non-blocking)"
+
       - name: Install worker dependencies
         working-directory: ${{ matrix.worker }}
         run: npm ci
@@ -261,6 +275,59 @@ jobs:
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
 
+      - name: Notify Slack - Preview Deployment Success
+        if: success() && steps.health_check.outputs.status == 'success'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Preview Deployment Successful - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Preview Deployment Successful"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🟡 Preview"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`${{ github.head_ref || github.ref_name }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health Check:*\n✅ Passed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Preview URL:* https://${{ matrix.worker }}-preview.guhan2210.workers.dev"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.pull_request.html_url || github.event.head_commit.url }}|View PR/Commit>"
+                }
+              }
+            ]
+          }'
+
       - name: Rollback on Health Check Failure
         if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
         working-directory: ${{ matrix.worker }}
@@ -269,6 +336,59 @@ jobs:
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
           npx wrangler rollback --env preview --version-id ${{ steps.prev_version.outputs.previous_version }}
           echo "✅ Rollback completed!"
+
+      - name: Notify Slack - Preview Deployment Failed & Rolled Back
+        if: failure() && steps.health_check.outcome == 'failure'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🚨 Preview Deployment Failed - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚨 Preview Deployment Failed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🟡 Preview"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`${{ github.head_ref || github.ref_name }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n❌ Health check failed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Action Taken:* ${{ steps.prev_version.outputs.previous_version != 'none' && 'Automatically rolled back to previous version' || 'No previous version available for rollback' }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.pull_request.html_url || github.event.head_commit.url }}|View PR/Commit>"
+                }
+              }
+            ]
+          }'
 
       - name: Comment PR with deployment status
         if: github.event_name == 'pull_request'
@@ -385,6 +505,84 @@ jobs:
           echo "status=failed" >> $GITHUB_OUTPUT
           exit 1
 
+      - name: Get PR Information
+        id: pr_info
+        if: success()
+        run: |
+          # Try to get PR number and title from the merge commit
+          PR_NUMBER=$(git log -1 --pretty=%B | grep -oP '#\K[0-9]+' | head -1 || echo "N/A")
+          PR_TITLE=$(git log -1 --pretty=%s || echo "Direct push to main")
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an' || echo "${{ github.actor }}")
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack - Production Deployment Success
+        if: success() && steps.health_check.outputs.status == 'success'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Production Deployment Successful - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Production Deployment Successful - PR Merged"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🔴 Production"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`main`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health Check:*\n✅ Passed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*PR Number:*\n#${{ steps.pr_info.outputs.pr_number }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Merged by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Commit:*\n```${{ steps.pr_info.outputs.pr_title }}```"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.head_commit.url }}|View Commit>"
+                }
+              }
+            ]
+          }'
+
       - name: Rollback on Health Check Failure
         if: failure() && steps.health_check.outcome == 'failure' && steps.prev_version.outputs.previous_version != 'none'
         working-directory: ${{ matrix.worker }}
@@ -393,6 +591,66 @@ jobs:
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
           npx wrangler rollback --env production --version-id ${{ steps.prev_version.outputs.previous_version }}
           echo "✅ Rollback completed!"
+
+      - name: Notify Slack - Production Deployment Failed & Rolled Back
+        if: failure() && steps.health_check.outcome == 'failure'
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🚨 Production Deployment Failed - ${{ matrix.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚨 Production Deployment Failed - Rollback Executed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ matrix.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n🔴 Production"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\n`main`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n❌ Health check failed"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Action Taken:* ${{ steps.prev_version.outputs.previous_version != 'none' && 'Automatically rolled back to previous version' || 'No previous version available for rollback' }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "⚠️ *URGENT:* Production deployment failed and was rolled back. Immediate investigation required!"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> • <${{ github.event.head_commit.url }}|View Commit>"
+                }
+              }
+            ]
+          }'
 
       - name: Create deployment summary
         if: always()
@@ -450,6 +708,105 @@ jobs:
           echo "📦 Deployment ID: ${{ github.event.inputs.deployment_id }}"
           npx wrangler rollback --env ${{ steps.env.outputs.environment }} --version-id ${{ github.event.inputs.deployment_id }}
           echo "✅ Rollback completed successfully!"
+
+      - name: Notify Slack - Manual Rollback Success
+        if: success()
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "✅ Manual Rollback Successful - ${{ github.event.inputs.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Manual Rollback Successful"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ github.event.inputs.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n${{ steps.env.outputs.environment == 'production' && '🔴 Production' || '🟡 Preview' }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Rolled back to:*\n`${{ github.event.inputs.deployment_id }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Initiated by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                }
+              }
+            ]
+          }'
+
+      - name: Notify Slack - Manual Rollback Failed
+        if: failure()
+        run: |
+          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "❌ Manual Rollback Failed - ${{ github.event.inputs.worker }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "❌ Manual Rollback Failed"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Worker:*\n`${{ github.event.inputs.worker }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Environment:*\n${{ steps.env.outputs.environment == 'production' && '🔴 Production' || '🟡 Preview' }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Target Version:*\n`${{ github.event.inputs.deployment_id }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Initiated by:*\n${{ github.actor }}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "⚠️ *URGENT:* Manual rollback failed. Immediate investigation required!"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+                }
+              }
+            ]
+          }'
 
       - name: Create rollback summary
         run: |

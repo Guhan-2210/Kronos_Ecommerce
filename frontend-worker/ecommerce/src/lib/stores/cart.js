@@ -35,7 +35,7 @@ function createCartStore() {
     async addToCart(product, userData, zipcode = '600002') {
       const authState = get(auth);
       
-      if (!authState.isAuthenticated || !authState.token) {
+      if (!authState.isAuthenticated) {
         return { success: false, error: 'Please login to add items to cart' };
       }
 
@@ -51,20 +51,35 @@ function createCartStore() {
       update(state => ({ ...state, isLoading: true, error: null }));
 
       try {
+        // Build cart data with only non-empty optional fields
         const cartData = {
           user_data: {
             email: userEmail,
             name: userName,
-            phone: userData?.phone
           },
           product_id: product.id,
-          sku: product.sku || '',
           name: product.name,
-          brand: product.brand || '',
-          image: product.image_url || product.images?.[0] || '',
           quantity: product.quantity || 1,
-          zipcode
         };
+
+        // Add optional user phone if available
+        if (userData?.phone) {
+          cartData.user_data.phone = userData.phone;
+        }
+
+        // Add optional product fields only if they have values
+        if (product.sku) {
+          cartData.sku = product.sku;
+        }
+        if (product.brand) {
+          cartData.brand = product.brand;
+        }
+        if (product.image_url || product.images?.[0]) {
+          cartData.image = product.image_url || product.images[0];
+        }
+        if (zipcode) {
+          cartData.zipcode = zipcode;
+        }
 
         console.log('Adding to cart:', cartData);
         const response = await cartAPI.addToCart(cartData);
@@ -99,7 +114,7 @@ function createCartStore() {
     async loadCart(cartId) {
       const authState = get(auth);
       
-      if (!authState.isAuthenticated || !authState.token) {
+      if (!authState.isAuthenticated) {
         return { success: false, error: 'Authentication required' };
       }
 

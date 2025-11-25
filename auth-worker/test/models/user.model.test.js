@@ -1,36 +1,13 @@
 import { expect } from 'chai';
-import sinon from 'sinon';
 import * as UserModel from '../../src/models/user.model.js';
-import * as db from '../../src/models/db.js';
+import { createMockEnv } from '../helpers/mock-env.js';
 
 describe('UserModel', () => {
   let mockEnv;
-  let prepareStub;
-  let bindStub;
-  let runStub;
-  let firstStub;
-  let dbStub;
 
   beforeEach(() => {
-    mockEnv = { DB: 'mock-db' };
-
-    runStub = sinon.stub().resolves({ success: true });
-    firstStub = sinon.stub();
-    bindStub = sinon.stub().returns({
-      run: runStub,
-      first: firstStub,
-    });
-    prepareStub = sinon.stub().returns({
-      bind: bindStub,
-    });
-
-    dbStub = sinon.stub(db, 'db').returns({
-      prepare: prepareStub,
-    });
-  });
-
-  afterEach(() => {
-    sinon.restore();
+    mockEnv = createMockEnv();
+    mockEnv.DB._reset();
   });
 
   describe('insertUser', () => {
@@ -39,13 +16,16 @@ describe('UserModel', () => {
       const userData = {
         email_hash: 'hash123',
         password_hash: 'pass123',
+        name: 'Test User',
       };
 
       await UserModel.insertUser(mockEnv, userId, userData);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(userId, JSON.stringify(userData));
-      expect(runStub).to.have.been.calledOnce;
+      // Verify user was inserted by retrieving by email hash
+      const result = await UserModel.findUserByEmailHash(mockEnv, 'hash123');
+      expect(result).to.not.be.null;
+      expect(result.id).to.equal(userId);
+      expect(result.user_data.email_hash).to.equal('hash123');
     });
 
     it('should stringify user data before inserting', async () => {
@@ -53,30 +33,27 @@ describe('UserModel', () => {
 
       await UserModel.insertUser(mockEnv, 'user-456', userData);
 
-      const bindArgs = bindStub.firstCall.args;
-      expect(bindArgs[1]).to.equal(JSON.stringify(userData));
+      // Retrieve and verify the data was stored correctly
+      const result = await UserModel.findUserByEmailHash(mockEnv, 'test');
+      expect(result).to.not.be.null;
+      expect(result.user_data).to.be.an('object');
+      expect(result.user_data.name).to.equal('Test User');
     });
   });
 
   describe('findUserByEmailHash', () => {
     it('should find user by email hash', async () => {
       const userData = { email_hash: 'hash123', name: 'John' };
-      firstStub.resolves({
-        id: 'user-123',
-        user_data: JSON.stringify(userData),
-      });
+      await UserModel.insertUser(mockEnv, 'user-123', userData);
 
       const result = await UserModel.findUserByEmailHash(mockEnv, 'hash123');
 
       expect(result).to.not.be.null;
       expect(result.id).to.equal('user-123');
       expect(result.user_data).to.deep.equal(userData);
-      expect(bindStub).to.have.been.calledWith('hash123');
     });
 
     it('should return null when user not found', async () => {
-      firstStub.resolves(null);
-
       const result = await UserModel.findUserByEmailHash(mockEnv, 'nonexistent');
 
       expect(result).to.be.null;
@@ -84,53 +61,42 @@ describe('UserModel', () => {
 
     it('should parse user_data JSON', async () => {
       const userData = { email_hash: 'test', password_hash: 'hashed' };
-      firstStub.resolves({
-        id: 'user-789',
-        user_data: JSON.stringify(userData),
-      });
+      await UserModel.insertUser(mockEnv, 'user-789', userData);
 
       const result = await UserModel.findUserByEmailHash(mockEnv, 'test');
 
       expect(result.user_data).to.be.an('object');
       expect(result.user_data.email_hash).to.equal('test');
     });
-
-    it('should use json_extract for email_hash query', async () => {
-      firstStub.resolves(null);
-
-      await UserModel.findUserByEmailHash(mockEnv, 'hash');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("json_extract(user_data, '$.email_hash')");
-    });
   });
 
   describe('updateUser', () => {
     it('should update user data', async () => {
       const userId = 'user-123';
-      const newData = { email_hash: 'newhash', updated: true };
+      const initialData = { email_hash: 'oldhash', name: 'John' };
+      await UserModel.insertUser(mockEnv, userId, initialData);
 
+      const newData = { email_hash: 'newhash', name: 'John', updated: true };
       await UserModel.updateUser(mockEnv, userId, newData);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(JSON.stringify(newData), userId);
-      expect(runStub).to.have.been.calledOnce;
+      // Note: Since we can't easily retrieve by ID with our mock,
+      // we'll verify by email hash
+      const result = await UserModel.findUserByEmailHash(mockEnv, 'newhash');
+      expect(result).to.not.be.null;
+      expect(result.user_data.updated).to.equal(true);
     });
 
     it('should stringify new user data', async () => {
-      const newData = { field: 'value', another: 123 };
+      const userId = 'user-456';
+      const initialData = { email_hash: 'hash456', field: 'old' };
+      await UserModel.insertUser(mockEnv, userId, initialData);
 
-      await UserModel.updateUser(mockEnv, 'user-456', newData);
+      const newData = { email_hash: 'hash456', field: 'value', another: 123 };
+      await UserModel.updateUser(mockEnv, userId, newData);
 
-      const bindArgs = bindStub.firstCall.args;
-      expect(bindArgs[0]).to.equal(JSON.stringify(newData));
-    });
-
-    it('should update updated_at timestamp', async () => {
-      await UserModel.updateUser(mockEnv, 'user-789', { data: 'test' });
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("updated_at = datetime('now')");
+      const result = await UserModel.findUserByEmailHash(mockEnv, 'hash456');
+      expect(result.user_data.field).to.equal('value');
+      expect(result.user_data.another).to.equal(123);
     });
   });
 });

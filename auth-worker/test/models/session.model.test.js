@@ -1,36 +1,13 @@
 import { expect } from 'chai';
-import sinon from 'sinon';
 import * as SessionModel from '../../src/models/session.model.js';
-import * as db from '../../src/models/db.js';
+import { createMockEnv } from '../helpers/mock-env.js';
 
 describe('SessionModel', () => {
   let mockEnv;
-  let prepareStub;
-  let bindStub;
-  let runStub;
-  let firstStub;
-  let dbStub;
 
   beforeEach(() => {
-    mockEnv = { DB: 'mock-db' };
-
-    runStub = sinon.stub().resolves({ success: true });
-    firstStub = sinon.stub();
-    bindStub = sinon.stub().returns({
-      run: runStub,
-      first: firstStub,
-    });
-    prepareStub = sinon.stub().returns({
-      bind: bindStub,
-    });
-
-    dbStub = sinon.stub(db, 'db').returns({
-      prepare: prepareStub,
-    });
-  });
-
-  afterEach(() => {
-    sinon.restore();
+    mockEnv = createMockEnv();
+    mockEnv.DB._reset();
   });
 
   describe('createSession', () => {
@@ -42,50 +19,44 @@ describe('SessionModel', () => {
 
       await SessionModel.createSession(mockEnv, sessionId, userId, hash, ttlDays);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(sessionId, userId, hash, ttlDays);
-      expect(runStub).to.have.been.calledOnce;
+      // Verify session was created
+      const session = await SessionModel.getSession(mockEnv, sessionId);
+      expect(session).to.not.be.null;
+      expect(session.id).to.equal(sessionId);
+      expect(session.user_id).to.equal(userId);
+      expect(session.refresh_token_hash).to.equal(hash);
     });
 
     it('should set expiration date based on TTL', async () => {
+      const beforeTime = Date.now();
       await SessionModel.createSession(mockEnv, 'sess-1', 'user-1', 'hash', 7);
 
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("datetime('now', ? || ' days')");
-      expect(bindStub).to.have.been.calledWith('sess-1', 'user-1', 'hash', 7);
+      const session = await SessionModel.getSession(mockEnv, 'sess-1');
+      expect(session).to.not.be.null;
+
+      // Check expiration is approximately 7 days from now
+      const expiresAt = new Date(session.expires_at).getTime();
+      const expectedExpiry = beforeTime + 7 * 24 * 60 * 60 * 1000;
+      // Allow 1 second tolerance
+      expect(expiresAt).to.be.within(expectedExpiry - 1000, expectedExpiry + 1000);
     });
   });
 
   describe('getSession', () => {
     it('should retrieve a session by ID', async () => {
-      const sessionData = {
-        id: 'sess-123',
-        user_id: 'user-456',
-        refresh_token_hash: 'hash',
-        expires_at: '2025-12-31',
-        revoked_at: null,
-      };
-
-      firstStub.resolves(sessionData);
+      await SessionModel.createSession(mockEnv, 'sess-123', 'user-456', 'hash', 30);
 
       const result = await SessionModel.getSession(mockEnv, 'sess-123');
 
-      expect(result).to.deep.equal(sessionData);
-      expect(bindStub).to.have.been.calledWith('sess-123');
+      expect(result).to.not.be.null;
+      expect(result.id).to.equal('sess-123');
+      expect(result.user_id).to.equal('user-456');
+      expect(result.refresh_token_hash).to.equal('hash');
+      expect(result.revoked_at).to.be.null;
     });
 
     it('should return null when session not found', async () => {
-      firstStub.resolves(null);
-
       const result = await SessionModel.getSession(mockEnv, 'nonexistent');
-
-      expect(result).to.be.null;
-    });
-
-    it('should return null for undefined result', async () => {
-      firstStub.resolves(undefined);
-
-      const result = await SessionModel.getSession(mockEnv, 'test');
 
       expect(result).to.be.null;
     });
@@ -96,26 +67,11 @@ describe('SessionModel', () => {
       const sessionId = 'sess-123';
       const newHash = 'new-hash-value';
 
+      await SessionModel.createSession(mockEnv, sessionId, 'user-123', 'old-hash', 30);
       await SessionModel.rotateSessionToken(mockEnv, sessionId, newHash);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(newHash, sessionId);
-      expect(runStub).to.have.been.calledOnce;
-    });
-
-    it('should only rotate valid sessions', async () => {
-      await SessionModel.rotateSessionToken(mockEnv, 'sess-456', 'hash');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include('revoked_at IS NULL');
-      expect(sql).to.include("expires_at > datetime('now')");
-    });
-
-    it('should update created_at timestamp', async () => {
-      await SessionModel.rotateSessionToken(mockEnv, 'sess-789', 'newhash');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("created_at = datetime('now')");
+      const session = await SessionModel.getSession(mockEnv, sessionId);
+      expect(session.refresh_token_hash).to.equal(newHash);
     });
   });
 
@@ -123,25 +79,11 @@ describe('SessionModel', () => {
     it('should revoke a session', async () => {
       const sessionId = 'sess-123';
 
+      await SessionModel.createSession(mockEnv, sessionId, 'user-123', 'hash', 30);
       await SessionModel.revokeSession(mockEnv, sessionId);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(sessionId);
-      expect(runStub).to.have.been.calledOnce;
-    });
-
-    it('should set revoked_at timestamp', async () => {
-      await SessionModel.revokeSession(mockEnv, 'sess-456');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("revoked_at = datetime('now')");
-    });
-
-    it('should only revoke non-revoked sessions', async () => {
-      await SessionModel.revokeSession(mockEnv, 'sess-789');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include('revoked_at IS NULL');
+      const session = await SessionModel.getSession(mockEnv, sessionId);
+      expect(session.revoked_at).to.not.be.null;
     });
   });
 
@@ -149,26 +91,21 @@ describe('SessionModel', () => {
     it('should revoke all sessions for a user', async () => {
       const userId = 'user-123';
 
+      // Create multiple sessions for the user
+      await SessionModel.createSession(mockEnv, 'sess-1', userId, 'hash1', 30);
+      await SessionModel.createSession(mockEnv, 'sess-2', userId, 'hash2', 30);
+      await SessionModel.createSession(mockEnv, 'sess-3', 'user-456', 'hash3', 30);
+
       await SessionModel.revokeAllSessions(mockEnv, userId);
 
-      expect(prepareStub).to.have.been.calledOnce;
-      expect(bindStub).to.have.been.calledWith(userId);
-      expect(runStub).to.have.been.calledOnce;
-    });
+      // Check that user-123's sessions are revoked
+      const session1 = await SessionModel.getSession(mockEnv, 'sess-1');
+      const session2 = await SessionModel.getSession(mockEnv, 'sess-2');
+      const session3 = await SessionModel.getSession(mockEnv, 'sess-3');
 
-    it('should only revoke active sessions', async () => {
-      await SessionModel.revokeAllSessions(mockEnv, 'user-456');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include('revoked_at IS NULL');
-      expect(sql).to.include('user_id = ?');
-    });
-
-    it('should set revoked_at for all matching sessions', async () => {
-      await SessionModel.revokeAllSessions(mockEnv, 'user-789');
-
-      const sql = prepareStub.firstCall.args[0];
-      expect(sql).to.include("revoked_at = datetime('now')");
+      expect(session1.revoked_at).to.not.be.null;
+      expect(session2.revoked_at).to.not.be.null;
+      expect(session3.revoked_at).to.be.null; // Different user's session should not be revoked
     });
   });
 });

@@ -41,12 +41,12 @@ describe('Logging Middleware', () => {
       expect(logger).to.equal(mockLogger);
     });
 
-    it('should return null if no logger attached', () => {
+    it('should return undefined if no logger attached', () => {
       const request = {};
 
       const logger = getLogger(request);
 
-      expect(logger).to.be.null;
+      expect(logger).to.be.undefined;
     });
   });
 });

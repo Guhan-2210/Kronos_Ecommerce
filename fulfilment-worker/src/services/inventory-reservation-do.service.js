@@ -125,6 +125,38 @@ export const InventoryReservationDOService = {
   },
 
   /**
+   * Get available stock considering active reservations
+   * This is the key method for real-time stock availability
+   */
+  async getAvailableStock(env, productId, warehouseId) {
+    try {
+      const stub = this.getStub(env, productId, warehouseId);
+
+      // Send productId and warehouseId in the request body so the DO can use them
+      const response = await stub.fetch('http://do/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, warehouseId }),
+      });
+
+      const result = await response.json();
+
+      // Returns available stock after subtracting active reservations
+      return {
+        physical_stock: result.stock?.quantity || 0,
+        available_stock: result.available || 0,
+        active_reservations: result.reservations?.length || 0,
+        total_reserved: result.stock?.quantity ? result.stock.quantity - result.available : 0,
+      };
+    } catch (error) {
+      console.error(`[DO Service] GetAvailableStock error for ${productId}:${warehouseId}:`, error);
+      // If DO check fails, fallback to database query (no reservation consideration)
+      // This ensures the system doesn't break if DOs are unavailable
+      return null;
+    }
+  },
+
+  /**
    * Get reservation info (for debugging)
    */
   async getInfo(env, productId, warehouseId) {

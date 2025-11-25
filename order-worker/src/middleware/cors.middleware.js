@@ -6,6 +6,10 @@
 
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
+  'https://localhost:5173', // HTTPS localhost for secure cookie support
+  'http://localhost:4173',
+  'https://localhost:4173',
+  'https://ecommerce-frontend.guhan2210.workers.dev', // Production frontend worker
   'http://localhost:3000',
   'http://localhost:8788',
   'http://localhost:8789',
@@ -22,6 +26,7 @@ export function handleCors(request) {
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
+        'Access-Control-Allow-Credentials': 'true', // Required for cookie sharing
       },
     });
   }
