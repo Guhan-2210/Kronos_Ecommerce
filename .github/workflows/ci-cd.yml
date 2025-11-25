@@ -295,28 +295,14 @@ jobs:
           # Map worker folder names to their actual preview worker names
           case $WORKER_NAME in
             auth-worker)
+              # Only auth-worker has "ecommerce-" prefix in preview
               HEALTH_URL="https://ecommerce-auth-preview.guhan2210.workers.dev/health"
               ;;
-            cart-worker)
-              HEALTH_URL="https://ecommerce-cart-preview.guhan2210.workers.dev/health"
-              ;;
-            catalog-worker)
-              HEALTH_URL="https://ecommerce-catalog-preview.guhan2210.workers.dev/health"
-              ;;
-            fulfilment-worker)
-              HEALTH_URL="https://ecommerce-fulfilment-preview.guhan2210.workers.dev/health"
-              ;;
-            order-worker)
-              HEALTH_URL="https://ecommerce-order-preview.guhan2210.workers.dev/health"
-              ;;
-            payment-worker)
-              HEALTH_URL="https://ecommerce-payment-preview.guhan2210.workers.dev/health"
-              ;;
-            price-worker)
-              HEALTH_URL="https://ecommerce-price-preview.guhan2210.workers.dev/health"
-              ;;
             *)
-              HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
+              # All other workers: Remove "-worker" suffix and add "-preview"
+              # e.g., cart-worker → cart-preview
+              WORKER_BASE="${WORKER_NAME%-worker}"
+              HEALTH_URL="https://${WORKER_BASE}-preview.guhan2210.workers.dev/health"
               ;;
           esac
 
@@ -564,27 +550,12 @@ jobs:
           # Map worker folder names to their actual production worker names
           case $WORKER_NAME in
             auth-worker)
+              # Only auth-worker has "ecommerce-" prefix in production
               HEALTH_URL="https://ecommerce-auth.guhan2210.workers.dev/health"
               ;;
-            cart-worker)
-              HEALTH_URL="https://cart-worker.guhan2210.workers.dev/health"
-              ;;
-            catalog-worker)
-              HEALTH_URL="https://catalog-worker.guhan2210.workers.dev/health"
-              ;;
-            fulfilment-worker)
-              HEALTH_URL="https://fulfilment-worker.guhan2210.workers.dev/health"
-              ;;
-            order-worker)
-              HEALTH_URL="https://order-worker.guhan2210.workers.dev/health"
-              ;;
-            payment-worker)
-              HEALTH_URL="https://payment-worker.guhan2210.workers.dev/health"
-              ;;
-            price-worker)
-              HEALTH_URL="https://price-worker.guhan2210.workers.dev/health"
-              ;;
             *)
+              # All other workers: Keep full folder name as-is
+              # e.g., cart-worker → cart-worker.guhan2210.workers.dev
               HEALTH_URL="https://${WORKER_NAME}.guhan2210.workers.dev/health"
               ;;
           esac
