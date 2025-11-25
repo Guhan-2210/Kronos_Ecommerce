@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.js';
@@ -17,6 +17,7 @@
   let paymentInProgress = false;
   let paymentWindow = null;
   let checkPaymentInterval = null;
+  let paymentCompleted = false; // ✅ Flag to track if payment was successfully completed
 
   // Shipping Address
   let shippingAddress = {
@@ -119,17 +120,32 @@
         // The popup might have successfully completed and sent a message
         // Give it 3 seconds to receive the message (increased from 2s)
         setTimeout(async () => {
-          console.log('⏰ Timeout fired, checking payment progress state:', paymentInProgress);
+          console.log('⏰ Timeout fired, checking payment state:', { paymentInProgress, paymentCompleted });
+          
+          // ✅ FIX: Don't cancel if payment was already completed
+          if (paymentCompleted) {
+            console.log('✅ Payment already completed, skipping timeout cancellation logic');
+            return;
+          }
           
           // Only show error if we're still in payment progress state
           // (meaning no success message was received)
           if (paymentInProgress) {
             const pendingOrderStr = sessionStorage.getItem('pending_order');
             if (pendingOrderStr) {
+              const pendingOrder = JSON.parse(pendingOrderStr);
+              
+              // ✅ FIX: Check if order was already processed before cancelling
+              const alreadyProcessed = sessionStorage.getItem(`order_processed_${pendingOrder.order_id}`);
+              if (alreadyProcessed) {
+                console.log('✅ Order was already processed, skipping cancellation');
+                paymentInProgress = false;
+                return;
+              }
+              
               // Payment was not completed (user closed window)
               // Cancel the order and release reservations
               try {
-                const pendingOrder = JSON.parse(pendingOrderStr);
                 console.log('🚫 Payment window closed without success message, cancelling order:', pendingOrder.order_id);
                 await orderAPI.cancelOrder(pendingOrder.order_id);
                 console.log('✅ Order cancelled and reservations released');
@@ -195,6 +211,9 @@
       // ✅ Payment complete! Now call complete-order in the parent window
       console.log('✅ Payment complete! Calling complete-order endpoint in parent window...');
       
+      // CRITICAL: Set payment completed flag FIRST to prevent any cancellation logic
+      paymentCompleted = true;
+      
       // CRITICAL: Clear the payment in progress state IMMEDIATELY
       paymentInProgress = false;
       
@@ -203,6 +222,16 @@
         clearInterval(checkPaymentInterval);
         checkPaymentInterval = null;
       }
+      
+      // Close the payment window if still open
+      if (paymentWindow && !paymentWindow.closed) {
+        console.log('🪟 Closing payment window after receiving success message');
+        paymentWindow.close();
+        paymentWindow = null;
+      }
+      
+      // ✅ FIX: Force Svelte to update the DOM immediately to hide the modal
+      await tick();
       
       submitting = true;
       error = null;
@@ -231,10 +260,12 @@
           goto('/payment/success?status=completed&order_id=' + orderId);
         } else {
           error = response.message || 'Failed to complete order';
+          paymentInProgress = false; // Ensure modal is hidden even on error
         }
       } catch (err) {
         console.error('❌ [PARENT WINDOW] Order completion error:', err);
         error = err.message || 'Failed to complete order. Please contact support.';
+        paymentInProgress = false; // Ensure modal is hidden even on error
       } finally {
         submitting = false;
       }
@@ -454,7 +485,7 @@
   </div>
 
   <!-- Payment in Progress Overlay -->
-  {#if paymentInProgress}
+  {#if paymentInProgress && !paymentCompleted}
     <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
       <div class="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full mx-4 animate-fade-in">
         <div class="text-center">

@@ -148,15 +148,15 @@
         return;
       }
 
-      // Get pending order info from sessionStorage
-      const pendingOrderStr = sessionStorage.getItem('pending_order');
-      if (!pendingOrderStr) {
+      // ✅ FIX: Get order_id from URL (passed by PayPal redirect) instead of sessionStorage
+      // This works in popup windows where sessionStorage is not shared with parent
+      if (!urlOrderId) {
         error = 'Order information not found. Please contact support.';
         loading = false;
         return;
       }
 
-      const pendingOrder = JSON.parse(pendingOrderStr);
+      const pendingOrder = { order_id: urlOrderId };
       
       console.log('🔄 PayPal payment captured:', {
         order_id: pendingOrder.order_id,

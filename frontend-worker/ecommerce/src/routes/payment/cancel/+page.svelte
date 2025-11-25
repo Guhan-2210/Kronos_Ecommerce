@@ -1,6 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import { orderAPI } from '$lib/api/order.js';
 
   let isPopup = false;
@@ -9,15 +10,17 @@
     // Check if we're running in a popup window
     isPopup = window.opener && window.opener !== window;
     
+    // ✅ FIX: Get order_id from URL parameter (passed by PayPal redirect)
+    const urlParams = new URLSearchParams(window.location.search);
+    const orderId = urlParams.get('order_id');
+    
     // Try to cancel the order and release reservations
-    const pendingOrderStr = sessionStorage.getItem('pending_order');
-    if (pendingOrderStr) {
+    if (orderId) {
       try {
-        const pendingOrder = JSON.parse(pendingOrderStr);
-        console.log('🚫 Payment cancelled, releasing reservations for order:', pendingOrder.order_id);
+        console.log('🚫 Payment cancelled, releasing reservations for order:', orderId);
         
         // Cancel the order (this will release reservations)
-        await orderAPI.cancelOrder(pendingOrder.order_id);
+        await orderAPI.cancelOrder(orderId);
         console.log('✅ Order cancelled and reservations released');
       } catch (error) {
         console.error('Failed to cancel order:', error);
@@ -38,9 +41,6 @@
       setTimeout(() => {
         window.close();
       }, 1000);
-    } else {
-      // Clean up any pending order data (only if not in popup)
-      sessionStorage.removeItem('pending_order');
     }
   });
 </script>
