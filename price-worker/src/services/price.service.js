@@ -20,7 +20,7 @@ export const PriceService = {
 
     return result;
   },
-
+  //get porice for oroduct
   /**
    * Get price for a product (with caching)
    */
