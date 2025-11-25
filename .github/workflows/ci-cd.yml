@@ -334,7 +334,7 @@ jobs:
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler versions rollback --env preview --message "Rollback due to health check failure"
+          npx wrangler versions deploy ${{ steps.prev_version.outputs.previous_version }}@100% --env preview --yes
           echo "✅ Rollback completed!"
 
       - name: Notify Slack - Preview Deployment Failed & Rolled Back
@@ -589,7 +589,7 @@ jobs:
         run: |
           echo "🔄 Health check failed! Rolling back to previous version..."
           echo "Previous version: ${{ steps.prev_version.outputs.previous_version }}"
-          npx wrangler versions rollback --env production --message "Rollback due to health check failure"
+          npx wrangler versions deploy ${{ steps.prev_version.outputs.previous_version }}@100% --env production --yes
           echo "✅ Rollback completed!"
 
       - name: Notify Slack - Production Deployment Failed & Rolled Back
@@ -708,10 +708,17 @@ jobs:
           echo "📦 Deployment ID: ${{ github.event.inputs.deployment_id }}"
           if [ -n "${{ github.event.inputs.deployment_id }}" ]; then
             echo "Deploying specific version: ${{ github.event.inputs.deployment_id }}"
-            npx wrangler versions deploy ${{ github.event.inputs.deployment_id }} --env ${{ steps.env.outputs.environment }} --yes
+            npx wrangler versions deploy ${{ github.event.inputs.deployment_id }}@100% --env ${{ steps.env.outputs.environment }} --yes
           else
-            echo "No version ID provided, rolling back to previous version"
-            npx wrangler versions rollback --env ${{ steps.env.outputs.environment }} --message "Manual rollback via GitHub Actions"
+            echo "No version ID provided, getting previous version..."
+            PREV_VERSION=$(npx wrangler deployments list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -v "Version ID" | head -1 | awk '{print $1}')
+            if [ -n "$PREV_VERSION" ]; then
+              echo "Rolling back to previous version: $PREV_VERSION"
+              npx wrangler versions deploy ${PREV_VERSION}@100% --env ${{ steps.env.outputs.environment }} --yes
+            else
+              echo "❌ No previous version found to rollback to"
+              exit 1
+            fi
           fi
           echo "✅ Rollback completed successfully!"
 
