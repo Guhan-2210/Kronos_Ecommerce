@@ -25,11 +25,11 @@ export default [
       'prefer-const': 'warn',
       'prefer-arrow-callback': 'warn',
 
-      // Style
-      indent: ['error', 2, { SwitchCase: 1 }],
-      quotes: ['error', 'single', { avoidEscape: true }],
-      semi: ['error', 'always'],
-      'comma-dangle': ['error', 'only-multiline'],
+      // Style (Formatting rules disabled - Prettier handles these)
+      // indent: ['error', 2, { SwitchCase: 1 }], // Disabled - Prettier handles indentation
+      // quotes: ['error', 'single', { avoidEscape: true }], // Disabled - Prettier handles quotes
+      // semi: ['error', 'always'], // Disabled - Prettier handles semicolons
+      // 'comma-dangle': ['error', 'only-multiline'], // Disabled - Prettier handles trailing commas
 
       // ES6+
       'arrow-spacing': 'error',

@@ -154,12 +154,15 @@ jobs:
 
       - name: Auto-fix linting and formatting issues
         run: |
-          echo "🔧 Auto-fixing ESLint issues..."
+          echo "🎨 Step 1: Prettier formatting (handles all formatting including indentation)..."
+          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier encountered issues"
+          
+          echo "🔧 Step 2: ESLint auto-fix (fixes code issues, not formatting)..."
           npx eslint "${{ matrix.worker }}/**/*.js" --fix || echo "⚠️ Some ESLint issues could not be auto-fixed"
-
-          echo "🎨 Auto-fixing Prettier formatting..."
-          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}"
-
+          
+          echo "🎨 Step 3: Final Prettier pass (ensure consistent formatting)..."
+          npx prettier --write "${{ matrix.worker }}/**/*.{js,json}" || echo "⚠️ Prettier encountered issues"
+          
           echo "✅ Auto-fix completed"
 
       - name: Check for changes after auto-fix
@@ -258,16 +261,18 @@ jobs:
         working-directory: ${{ matrix.worker }}
         run: |
           echo "Getting current deployment version (will be 'previous' after new deployment)..."
-          # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
-          CURRENT_VERSION=$(npx wrangler deployments list --env preview 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          # Use 'versions list' to get all versions sorted by creation time (newest first)
+          # Extract the FIRST version ID (currently deployed version)
+          CURRENT_VERSION=$(npx wrangler versions list --env preview 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
           if [ -z "$CURRENT_VERSION" ]; then
             echo "No existing deployment found (first deployment)"
             echo "previous_version=none" >> $GITHUB_OUTPUT
             echo "Previous version: none"
           else
-            echo "Current version: $CURRENT_VERSION"
+            echo "Current version (newest): $CURRENT_VERSION"
             echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "This will be the 'previous' version after new deployment"
             echo "Previous version (for rollback): $CURRENT_VERSION"
           fi
 
@@ -499,16 +504,18 @@ jobs:
         working-directory: ${{ matrix.worker }}
         run: |
           echo "Getting current production deployment version (will be 'previous' after new deployment)..."
-          # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
-          CURRENT_VERSION=$(npx wrangler deployments list --env production 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+          # Use 'versions list' to get all versions sorted by creation time (newest first)
+          # Extract the FIRST version ID (currently deployed version)
+          CURRENT_VERSION=$(npx wrangler versions list --env production 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
           if [ -z "$CURRENT_VERSION" ]; then
             echo "No existing deployment found (first deployment)"
             echo "previous_version=none" >> $GITHUB_OUTPUT
             echo "Previous version: none"
           else
-            echo "Current version: $CURRENT_VERSION"
+            echo "Current version (newest): $CURRENT_VERSION"
             echo "previous_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "This will be the 'previous' version after new deployment"
             echo "Previous version (for rollback): $CURRENT_VERSION"
           fi
 
@@ -779,14 +786,15 @@ jobs:
             echo "Deploying specific version: ${{ github.event.inputs.deployment_id }}"
             npx wrangler versions deploy ${{ github.event.inputs.deployment_id }}@100% --env ${{ steps.env.outputs.environment }} --yes
           else
-            echo "No version ID provided, getting previous version..."
-            # Extract version ID: match UUID pattern (8-4-4-4-12 hex characters)
-            PREV_VERSION=$(npx wrangler deployments list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
-            if [ -n "$PREV_VERSION" ]; then
-              echo "Rolling back to previous version: $PREV_VERSION"
-              npx wrangler versions deploy ${PREV_VERSION}@100% --env ${{ steps.env.outputs.environment }} --yes
+            echo "No version ID provided, getting most recent version..."
+            # Use 'versions list' to get versions sorted by creation time (newest first)
+            # Extract the FIRST version ID (most recently created/deployed version)
+            LATEST_VERSION=$(npx wrangler versions list --env ${{ steps.env.outputs.environment }} 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+            if [ -n "$LATEST_VERSION" ]; then
+              echo "Rolling back to most recent version: $LATEST_VERSION"
+              npx wrangler versions deploy ${LATEST_VERSION}@100% --env ${{ steps.env.outputs.environment }} --yes
             else
-              echo "❌ No previous version found to rollback to"
+              echo "❌ No version found to rollback to"
               exit 1
             fi
           fi
