@@ -299,10 +299,9 @@ jobs:
               HEALTH_URL="https://ecommerce-auth-preview.guhan2210.workers.dev/health"
               ;;
             *)
-              # All other workers: Remove "-worker" suffix and add "-preview"
-              # e.g., cart-worker → cart-preview
-              WORKER_BASE="${WORKER_NAME%-worker}"
-              HEALTH_URL="https://${WORKER_BASE}-preview.guhan2210.workers.dev/health"
+              # All other workers: Keep full name and add "-preview"
+              # e.g., cart-worker → cart-worker-preview
+              HEALTH_URL="https://${WORKER_NAME}-preview.guhan2210.workers.dev/health"
               ;;
           esac
 
