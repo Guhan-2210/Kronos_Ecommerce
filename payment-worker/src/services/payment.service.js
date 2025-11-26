@@ -61,8 +61,8 @@ export const PaymentService = {
         brand_name: 'Nike Ecommerce',
         landing_page: 'NO_PREFERENCE',
         user_action: 'PAY_NOW',
-        return_url: `${env.FRONTEND_URL || 'http://localhost:5173'}/payment/success`,
-        cancel_url: `${env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel`,
+        return_url: `${env.FRONTEND_URL || 'http://localhost:5173'}/payment/success?order_id=${orderId}`,
+        cancel_url: `${env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel?order_id=${orderId}`,
       },
     };
 
